@@ -247,7 +247,7 @@ void SparseFieldGPU<Data_T>::hostToDevice(IntBuffer_T& blockTable,
     {
       const Data_T* ptr = m_field->blockData(bi.x, bi.y, bi.z);
       host_block_table[i] = write_index;
-      assert(block.data.size() == block_element_count);
+      // assert(block.data.size() == block_element_count);
 
       Field3D::Gpu::copy(ptr,
                          ptr + block_element_count,

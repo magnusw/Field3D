@@ -152,12 +152,12 @@ struct SparseFieldSampler : public FieldSampler
   inline __host__ __device__
   int getIndex(int i, int j, int k) const
   {
-    kernel_assert(i >= dataWindowMin.x);
-    kernel_assert(i <= dataWindowMax.x);
-    kernel_assert(j >= dataWindowMin.y);
-    kernel_assert(j <= dataWindowMax.y);
-    kernel_assert(k >= dataWindowMin.z);
-    kernel_assert(k <= dataWindowMax.z);
+    kernel_assert(i >= m_dataWindowMin.x);
+    kernel_assert(i <= m_dataWindowMax.x);
+    kernel_assert(j >= m_dataWindowMin.y);
+    kernel_assert(j <= m_dataWindowMax.y);
+    kernel_assert(k >= m_dataWindowMin.z);
+    kernel_assert(k <= m_dataWindowMax.z);
 
     // Add crop window offset
     applyDataWindowOffset(i, j, k);

@@ -208,7 +208,7 @@ void testField()
       - 2, res - 2, res - 2)));
   field->clear(1.0f);
   randomValues(-10.0f, 10.0f, *field);
-  field->setStrMetadata("my_attribute", "my_value");
+  field->metadata().setStrMetadata("my_attribute", "my_value");
 
   // create a GPU field and attach it to the Field3D field
   typename FieldTypeGPU::Ptr gpu_field(new FieldTypeGPU);
