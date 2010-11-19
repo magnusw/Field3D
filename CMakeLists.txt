@@ -35,9 +35,12 @@ CMAKE_MINIMUM_REQUIRED( VERSION 2.8 )
 
 PROJECT ( field3d )
 
+set( CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cmake )
+
 FIND_PACKAGE (Doxygen)
 FIND_PACKAGE (HDF5)
-FIND_PACKAGE( Boost COMPONENTS thread )
+FIND_PACKAGE( Boost COMPONENTS thread program_options)
+FIND_PACKAGE (ILMBase)
 
 # Duplicate the export directory to Field3D
 FILE ( REMOVE_RECURSE ${CMAKE_HOME_DIRECTORY}/Field3D)
@@ -47,16 +50,20 @@ FILE ( COPY export/ DESTINATION ${CMAKE_HOME_DIRECTORY}/Field3D)
 INCLUDE_DIRECTORIES ( . )
 INCLUDE_DIRECTORIES ( src )
 INCLUDE_DIRECTORIES ( export )
-INCLUDE_DIRECTORIES ( /usr/include/OpenEXR )
+INCLUDE_DIRECTORIES ( ${ILMBASE_INCLUDE_DIRS} )
+INCLUDE_DIRECTORIES ( ${HDF5_INCLUDE_DIRS} )
 INCLUDE_DIRECTORIES ( ${Boost_INCLUDE_DIR} )
 
 # link directories
 LINK_DIRECTORIES ( ${Boost_LIBRARY_DIRS} )
+LINK_DIRECTORIES ( ${HDF5_LIBRARY_DIRS} )
+LINK_DIRECTORIES ( ${ILMBASE_LIBRARY_DIRS} )
 
+IF ( LINUX )
+  ADD_DEFINITIONS ( -fPIC -m64 -DLINUX -DREQUIRE_IOSTREAM -Wno-invalid-offsetof )
+ENDIF ( LINUX )
 
-ADD_DEFINITIONS ( -fPIC -m64 -DLINUX -DREQUIRE_IOSTREAM -Wno-invalid-offsetof )
-
-ADD_LIBRARY ( field3d 
+ADD_LIBRARY ( Field3D 
   src/ClassFactory.cpp
   src/DenseFieldIO.cpp
   src/Field3DFile.cpp
@@ -73,113 +80,59 @@ ADD_LIBRARY ( field3d
   src/SparseFile.cpp
 )
 
+SET ( Field3D_Target_Link_Libraries
+  Field3D
+  ${HDF5_LIBRARIES}
+  z
+  Iex
+  Half
+  IlmThread
+  Imath
+  dl
+  ${Boost_LIBRARIES}
+  )
+
 # field3d - unitTest
 ADD_EXECUTABLE ( unitTest
   test/unit_tests/UnitTest.cpp
   )
 
-TARGET_LINK_LIBRARIES ( unitTest
-  field3d
-  ${HDF5HL_LIBRARY}
-  ${HDF5_LIBRARY}
-  z
-  Iex
-  Half
-  IlmThread
-  Imath
-  dl
-  ${BOOST_LIBRARIES}
+TARGET_LINK_LIBRARIES ( unitTest ${Field3D_Target_Link_Libraries} )
+
+# field3d - f3dinfo
+ADD_EXECUTABLE ( f3dinfo
+  apps/f3dinfo/main.cpp
   )
 
-# field3d - access_speed
-ADD_EXECUTABLE ( access_speed
-  apps/access_speed/main.cpp
-  )
-
-TARGET_LINK_LIBRARIES ( access_speed
-  field3d
-  ${HDF5HL_LIBRARY}
-  ${HDF5_LIBRARY}
-  z
-  Iex
-  Half
-  IlmThread
-  Imath
-  dl
-  ${BOOST_LIBRARIES}
-  )
+TARGET_LINK_LIBRARIES ( f3dinfo ${Field3D_Target_Link_Libraries} )
 
 # field3d - sparse_field_io
 ADD_EXECUTABLE ( sparse_field_io
-  apps/sparse_field_io/main.cpp
+  apps/sample_code/sparse_field_io/main.cpp
   )
 
-TARGET_LINK_LIBRARIES ( sparse_field_io
-  field3d
-  ${HDF5HL_LIBRARY}
-  ${HDF5_LIBRARY}
-  z
-  Iex
-  Half
-  IlmThread
-  Imath
-  dl
-  ${BOOST_LIBRARIES}
-  )
+TARGET_LINK_LIBRARIES ( sparse_field_io ${Field3D_Target_Link_Libraries} )
 
 # field3d - read
 ADD_EXECUTABLE ( read
   apps/sample_code/read/main.cpp
   )
 
-TARGET_LINK_LIBRARIES ( read
-  field3d
-  ${HDF5HL_LIBRARY}
-  ${HDF5_LIBRARY}
-  z
-  Iex
-  Half
-  IlmThread
-  Imath
-  dl
-  ${BOOST_LIBRARIES}
-  )
+TARGET_LINK_LIBRARIES ( read ${Field3D_Target_Link_Libraries} )
 
 # field3d - mixed_types
 ADD_EXECUTABLE ( mixed_types
   apps/sample_code/mixed_types/main.cpp
   )
 
-TARGET_LINK_LIBRARIES ( mixed_types
-  field3d
-  ${HDF5HL_LIBRARY}
-  ${HDF5_LIBRARY}
-  z
-  Iex
-  Half
-  IlmThread
-  Imath
-  dl
-  ${BOOST_LIBRARIES}
-  )
+TARGET_LINK_LIBRARIES ( mixed_types ${Field3D_Target_Link_Libraries} )
 
 # field3d - create_and_write
 ADD_EXECUTABLE ( create_and_write
   apps/sample_code/create_and_write/main.cpp
   )
 
-TARGET_LINK_LIBRARIES ( create_and_write
-  field3d
-  ${HDF5HL_LIBRARY}
-  ${HDF5_LIBRARY}
-  z
-  Iex
-  Half
-  IlmThread
-  Imath
-  dl
-  ${BOOST_LIBRARIES}
-  )
+TARGET_LINK_LIBRARIES ( create_and_write ${Field3D_Target_Link_Libraries} )
 
 IF (DOXYGEN_FOUND)
   ADD_CUSTOM_TARGET ( doc
@@ -190,7 +143,7 @@ IF (DOXYGEN_FOUND)
 ENDIF (DOXYGEN_FOUND)
 
 INSTALL ( TARGETS
-  field3d
+  Field3D
   DESTINATION lib
 )
 

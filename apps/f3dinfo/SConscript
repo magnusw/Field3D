@@ -11,8 +11,9 @@ sys.path.append(pathToRoot)
 
 from BuildSupport import *
 
+appName = "f3dinfo"
 buildPath = buildDir()
-binPath   = join(buildPath, os.path.basename(os.getcwd()))
+binPath   = join(buildPath, appName)
 
 # ------------------------------------------------------------------------------
 
@@ -21,6 +22,8 @@ appEnv = env.Clone()
 
 setupEnv(appEnv, pathToRoot)
 addField3DInstall(appEnv, pathToRoot)
+
+appEnv.Append(LIBS = ["boost_program_options"])
 
 appEnv.VariantDir(buildPath, ".", duplicate = 0)
 files = Glob(join(buildPath, "*.cpp"))
