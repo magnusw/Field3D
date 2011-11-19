@@ -1,6 +1,6 @@
-#include <field3d/InitIO.h>
-#include <field3d/SparseFieldIO.h>
-#include <field3d/FieldInterp.h>
+#include <Field3D/InitIO.h>
+#include <Field3D/SparseFieldIO.h>
+#include <Field3D/FieldInterp.h>
 
 #include <pthread.h>
 #include <boost/thread/mutex.hpp>
@@ -32,7 +32,7 @@ int main(int argc, char* argv[])
 {    
   if ( argc != 2 )
   {
-    std::cout << "Please specify an input sparse f3d file";
+    std::cout << "Please specify an input sparse f3d file" << std::endl;;
     return 1;
   }
 
@@ -48,8 +48,8 @@ int main(int argc, char* argv[])
   const char* f3dFile = argv[1];
   Field3D::Field3DInputFile in;
   in.open( f3dFile );
-  Field3D::Field<float>::Vec fields = in.readScalarLayers<float>("render", "density");
-  std::cout << fields.size() << std::endl;
+  Field3D::Field<float>::Vec fields = in.readScalarLayers<float>();
+  std::cout << "Fields in file: " << fields.size() << std::endl;
 
   pthread_t readerThread;
   std::cout << "start reader thread" << std::endl;
@@ -69,7 +69,7 @@ int main(int argc, char* argv[])
 
     Field3D::Field3DInputFile in2;
     in2.open( f3dFile );
-    Field3D::Field<float>::Vec fields2 = in2.readScalarLayers<float>("render", "density");
+    Field3D::Field<float>::Vec fields2 = in2.readScalarLayers<float>();
     std::cout << i << std::endl;
     sleep(1);
   }

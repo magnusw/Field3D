@@ -38,8 +38,6 @@
 /*! \file Field3DFile.h
   \brief Contains the Field3DFile classes
   \ingroup field
-
-  OSS sanitized
 */
 
 //----------------------------------------------------------------------------//
@@ -63,13 +61,15 @@
 #include "ClassFactory.h"
 #include "Hdf5Util.h"
 
+#ifdef FIELD3D_USE_FIELD_CACHE
+#include "FieldCache.h"
+#endif
+
 //----------------------------------------------------------------------------//
 
 #include "ns.h"
 
 FIELD3D_NAMESPACE_OPEN
-
-
 
 //----------------------------------------------------------------------------//
 // Function Declarations
@@ -843,7 +843,7 @@ Field3DInputFile::readVectorLayers(const std::string &name) const
   
   typedef typename Field<FIELD3D_VEC3_T<Data_T> >::Ptr FieldPtr;
   typedef typename Field<FIELD3D_VEC3_T<Data_T> >::Vec FieldList;
-  
+
   FieldList ret;
   
   std::vector<std::string> parts;
@@ -1576,10 +1576,22 @@ typename Field<Data_T>::Ptr
 readField(const std::string &className, hid_t layerGroup,
           const std::string &filename, const std::string &layerPath)
 {
+  typedef typename Field<Data_T>::Ptr FieldPtr;
+
+  // Check cache ---
+
+#ifdef FIELD3D_USE_FIELD_CACHE
+  FieldCache<Data_T> &cache = FieldCache<Data_T>::singleton();
+  FieldPtr cachedField = cache.getCachedField(filename, layerPath);
+
+  if (cachedField) {
+    return cachedField;
+  } 
+#endif
+  
+  // Load as usual ---
 
   ClassFactory &factory = ClassFactory::singleton();
-  
-  typedef typename Field<Data_T>::Ptr FieldPtr;
 
   FieldIO::Ptr io = factory.createFieldIO(className);
   assert(io != 0);
@@ -1590,20 +1602,24 @@ readField(const std::string &className, hid_t layerGroup,
   }
 
   DataTypeEnum typeEnum = DataTypeTraits<Data_T>::typeEnum();
-  FieldBase::Ptr field = io->read(layerGroup, filename, layerPath, typeEnum);
+  FieldBase::Ptr fieldBase = io->read(layerGroup, filename, layerPath, typeEnum);
 
-  if (!field) {
+  if (!fieldBase) {
     // We don't need to print a message, because it could just be that
     // a layer of the specified data type and name couldn't be found
     return FieldPtr();
   }
   
-  FieldPtr result = field_dynamic_cast<Field<Data_T> >(field);
+  FieldPtr field = field_dynamic_cast<Field<Data_T> >(fieldBase);
 
-  if (result)
-    return result;
+#ifdef FIELD3D_USE_FIELD_CACHE
+  // Cache the field for future use
+  if (field) {
+    cache.cacheField(field, filename, layerPath);
+  }
+#endif
 
-  return FieldPtr();
+  return field;
 }
 
 //----------------------------------------------------------------------------//

@@ -4,6 +4,7 @@ env = Environment()
 
 Export("env")
 
+SConscript("../../../SConscript")
 SConscript("SConscript")
 
 # ------------------------------------------------------------------------------

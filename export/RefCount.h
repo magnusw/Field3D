@@ -45,9 +45,16 @@
 #define _INCLUDED_Field3D_REF_COUNT_H_
 
 #define FIELD3D_USE_ATOMIC_COUNT
+#define FIELD3D_USE_FIELD_CACHE
 
 //----------------------------------------------------------------------------//
+
 #include <boost/intrusive_ptr.hpp> 
+
+#ifdef FIELD3D_USE_FIELD_CACHE
+#include <boost/shared_ptr.hpp>
+#include <boost/weak_ptr.hpp>
+#endif
 
 #ifdef FIELD3D_USE_ATOMIC_COUNT
 #include <boost/detail/atomic_count.hpp>
@@ -86,7 +93,29 @@ FIELD3D_NAMESPACE_OPEN
   DEFINE_MATCH_RTTI_CALL                        \
 
 //----------------------------------------------------------------------------//
+// null_deleter (for shared_ptr)
+//----------------------------------------------------------------------------//
 
+#ifdef FIELD3D_USE_FIELD_CACHE
+//! Used with 
+struct null_deleter
+{
+    void operator()(void const *) const
+    { }
+};
+#endif
+
+//----------------------------------------------------------------------------//
+// RefBase
+//----------------------------------------------------------------------------//
+
+/* \class RefBase
+  
+   \note For information on the use of a shared pointer internally, see:
+   http://www.boost.org/doc/libs/1_48_0/libs/smart_ptr/sp_techniques.html#weak_without_shared
+ */
+
+//----------------------------------------------------------------------------//
 class RefBase 
 {
 public:
@@ -95,19 +124,34 @@ public:
 
   typedef boost::intrusive_ptr<RefBase> Ptr;
 
+#ifdef FIELD3D_USE_FIELD_CACHE
+  typedef boost::weak_ptr<RefBase>      WeakPtr;
+#endif
+
   // Constructors --------------------------------------------------------------
 
   //! \name Constructors, destructors, copying
   //! \{
 
+  //! Default constructor
+  //! \note The null_deleter ensures we never try to actually delete this
+  //! object using the shared pointer.
   RefBase() 
-    : m_counter(0) 
-  {}
-    
+    : m_counter(0)
+#ifdef FIELD3D_USE_FIELD_CACHE
+    , m_sharedPtr(this, null_deleter()) 
+#endif
+  { }
+
   //! Copy constructor
+  //! \note The null_deleter ensures we never try to actually delete this
+  //! object using the shared pointer.
   RefBase(const RefBase&) 
-    : m_counter(0) 
-  {}
+    : m_counter(0)
+#ifdef FIELD3D_USE_FIELD_CACHE
+    , m_sharedPtr(this, null_deleter()) 
+#endif
+  { }
 
   //! Assignment operator
   RefBase& operator= (const RefBase&)
@@ -115,7 +159,7 @@ public:
 
   //! Destructor
   virtual ~RefBase() 
-  {}
+  { }
 
   //! \}
 
@@ -145,6 +189,13 @@ public:
     // to delete the object ourselves.
   }
   
+  // Cache handling ------------------------------------------------------------
+
+#ifdef FIELD3D_USE_FIELD_CACHE
+  WeakPtr weakPtr() const
+  { return m_sharedPtr; }
+#endif
+
   // RTTI replacement ----------------------------------------------------------
 
   /*! \note A note on why the RTTI replacement is needed:
@@ -189,6 +240,12 @@ private:
   mutable boost::mutex m_refMutex;     
 #endif
 
+#ifdef FIELD3D_USE_FIELD_CACHE
+  //! For use by the FieldCache only:
+  //! The shared pointer lets us see if this object is still alive.
+  boost::shared_ptr<RefBase> m_sharedPtr;
+#endif
+
 };
 
 //----------------------------------------------------------------------------//
@@ -203,6 +260,8 @@ intrusive_ptr_add_ref(RefBase* r)
 
 //----------------------------------------------------------------------------//
 
+//! \todo Communicate with the FieldCache to prevent any cache updates from
+//! happening while this releases its count.
 inline void
 intrusive_ptr_release(RefBase* r)
 {
@@ -235,7 +294,7 @@ field_dynamic_cast(RefBase::Ptr field)
   }
 }
 
-//#define FIELD_DYNAMIC_CAST boost::dynamic_pointer_cast
+// #define FIELD_DYNAMIC_CAST boost::dynamic_pointer_cast
 #define FIELD_DYNAMIC_CAST field_dynamic_cast
 
 //----------------------------------------------------------------------------//
