@@ -163,7 +163,10 @@ FieldCache<Data_T>::getCachedField(const std::string &filename,
   }
   // Next, check if all weak_ptrs are valid
   CacheEntry &entry = i->second;
-  WeakPtr isAlive = entry.first;
+  WeakPtr weakPtr = entry.first;
+  if (weakPtr.expired()) {
+    return FieldPtr();
+  }
   return FieldPtr(entry.second);
 }
 
