@@ -112,7 +112,7 @@ namespace {
     return ret;
   }
 
-//----------------------------------------------------------------------------//
+  //--------------------------------------------------------------------------//
 
   //! Functor used with for_each to print a container
   template <class T>
@@ -131,7 +131,7 @@ namespace {
     int indent;
   };
 
-//----------------------------------------------------------------------------//
+  //--------------------------------------------------------------------------//
 
   /*! \brief checks to see if a file/directory exists or not
     \param[in] filename the file/directory to check
@@ -162,7 +162,7 @@ namespace {
     }
   }
 
-//----------------------------------------------------------------------------//
+  //--------------------------------------------------------------------------//
 
   bool isSupportedFileVersion(const int fileVersion[3],
                               const int minVersion[2])
@@ -199,7 +199,31 @@ namespace {
     return true;
   }
 
-//----------------------------------------------------------------------------//
+  //--------------------------------------------------------------------------//
+
+  //! This function creates a FieldIO instance based on field->className()
+  //! which then writes the field data in layerGroup location
+  FIELD3D_API bool writeField(OgOGroup &layerGroup, FieldBase::Ptr field)
+  {
+    ClassFactory &factory = ClassFactory::singleton();
+    
+    FieldIO::Ptr io = factory.createFieldIO(field->className());
+    assert(io != 0);
+    if (!io) {
+      Msg::print(Msg::SevWarning, "Unable to find class type: " + 
+                 field->className());
+      return false;
+    }
+
+    // Add class name attribute
+    OgOAttribute<string>(layerGroup, k_classNameAttrName, field->className());
+
+    // return io->write(layerGroup, field);
+    //! \todo FIXME!
+    return false;
+  }
+
+  //--------------------------------------------------------------------------//
 
 } // end of local namespace
 
@@ -221,41 +245,21 @@ std::string Partition::className() const
 //----------------------------------------------------------------------------//
 
 void 
-Partition::addScalarLayer(const Layer &layer)
+Partition::addLayer(const Layer &layer)
 {
-  m_scalarLayers.push_back(layer);
-}
-
-//----------------------------------------------------------------------------//
-
-void 
-Partition::addVectorLayer(const Layer &layer)
-{
-  m_vectorLayers.push_back(layer);
+  m_layers.push_back(layer);
 }
 
 //----------------------------------------------------------------------------//
 
 const Layer* 
-Partition::scalarLayer(const std::string &name) const
+Partition::layer(const std::string &name) const
 {
-  for (ScalarLayerList::const_iterator i = m_scalarLayers.begin();
-       i != m_scalarLayers.end(); ++i) {
-    if (i->name == name)
+  for (LayerList::const_iterator i = m_layers.begin(); 
+       i != m_layers.end(); ++i) {
+    if (i->name == name) {
       return &(*i);
-  }
-  return NULL;
-}
-
-//----------------------------------------------------------------------------//
-
-const Layer* 
-Partition::vectorLayer(const std::string &name) const
-{
-  for (VectorLayerList::const_iterator i = m_vectorLayers.begin();
-       i != m_vectorLayers.end(); ++i) {
-    if (i->name == name)
-      return &(*i);
+    }
   }
   return NULL;
 }
@@ -263,27 +267,28 @@ Partition::vectorLayer(const std::string &name) const
 //----------------------------------------------------------------------------//
 
 void 
-Partition::getScalarLayerNames(std::vector<std::string> &names) const 
+Partition::getLayerNames(std::vector<std::string> &names) const 
 {
   // We don't want to do names.clear() here, since this gets called
   // inside some loops that want to accumulate names.
-  for (ScalarLayerList::const_iterator i = m_scalarLayers.begin();
-       i != m_scalarLayers.end(); ++i) {
+  for (LayerList::const_iterator i = m_layers.begin();
+       i != m_layers.end(); ++i) {
     names.push_back(i->name);
   }
 }
 
 //----------------------------------------------------------------------------//
 
-void 
-Partition::getVectorLayerNames(std::vector<std::string> &names) const
+OgOGroup& Partition::group() const
 {
-  // We don't want to do names.clear() here, since this gets called
-  // inside some loops that want to accumulate names.
-  for (VectorLayerList::const_iterator i = m_vectorLayers.begin();
-       i != m_vectorLayers.end(); ++i) {
-    names.push_back(i->name);
-  }
+  return *m_group;
+}
+
+//----------------------------------------------------------------------------//
+
+void Partition::setGroup(boost::shared_ptr<OgOGroup> ptr)
+{
+  m_group = ptr;
 }
 
 //----------------------------------------------------------------------------//
@@ -400,13 +405,15 @@ void
 Field3DFileBase::getScalarLayerNames(vector<string> &names, 
                                      const string &partitionName) const
 {
+  //! \todo Make this really only return scalar layers
+
   names.clear();
 
   for (int i = 0; i < numIntPartitions(partitionName); i++) {
     string internalName = makeIntPartitionName(partitionName, i);
     File::Partition::Ptr part = partition(internalName);
     if (part)
-      part->getScalarLayerNames(names);
+      part->getLayerNames(names);
   }
 
   names = makeUnique(names);
@@ -418,13 +425,15 @@ void
 Field3DFileBase::getVectorLayerNames(vector<string> &names, 
                                      const string &partitionName) const
 {
+  //! \todo Make this really only return vector layers
+
   names.clear();
 
   for (int i = 0; i < numIntPartitions(partitionName); i++) {
     string internalName = makeIntPartitionName(partitionName, i);
     File::Partition::Ptr part = partition(internalName);
     if (part)
-      part->getVectorLayerNames(names);
+      part->getLayerNames(names);
   }
 
   names = makeUnique(names);
@@ -449,6 +458,8 @@ void
 Field3DFileBase::getIntScalarLayerNames(vector<string> &names, 
                                         const string &intPartitionName) const
 {
+  //! \todo Make this really only return scalar layers
+
   names.clear();
 
   File::Partition::Ptr part = partition(intPartitionName);
@@ -458,7 +469,7 @@ Field3DFileBase::getIntScalarLayerNames(vector<string> &names,
     return;
   }
 
-  part->getScalarLayerNames(names);
+  part->getLayerNames(names);
 }
 
 //----------------------------------------------------------------------------//
@@ -467,6 +478,8 @@ void
 Field3DFileBase::getIntVectorLayerNames(vector<string> &names, 
                                         const string &intPartitionName) const
 {
+  //! \todo Make this really only return scalar layers
+
   names.clear();
 
   File::Partition::Ptr part = partition(intPartitionName);
@@ -476,7 +489,7 @@ Field3DFileBase::getIntVectorLayerNames(vector<string> &names,
     return;
   }
 
-  part->getVectorLayerNames(names);
+  part->getLayerNames(names);
 }
 
 //----------------------------------------------------------------------------//
@@ -618,10 +631,200 @@ bool Field3DOutputFile::create(const string &filename, CreateMode cm)
   m_root.reset(new OgOGroup(*m_archive));
 
   // Create the version attribute
-#if 0
   OgOAttribute<veci32_t> f3dVersion(*m_root, k_versionAttrName, 
                                     k_currentFileVersion);
-#endif
+
+  return true;
+}
+
+//----------------------------------------------------------------------------//
+
+bool Field3DOutputFile::writeMetadata(OgOGroup &metadataGroup, 
+                                      FieldBase::Ptr field)
+{
+  typedef FieldMetadata<FieldBase> Metadata;
+
+  {
+    Metadata::StrMetadata::const_iterator i = 
+      field->metadata().strMetadata().begin();
+    Metadata::StrMetadata::const_iterator end = 
+      field->metadata().strMetadata().end();
+    for (; i != end; ++i) {
+      try {
+        OgOAttribute<string>(metadataGroup, i->first, i->second);
+      }
+      catch (OgOAttributeException &e) {
+        Msg::print(Msg::SevWarning, "Writing attribute " + i->first + 
+                   " " + e.what());
+        return false;
+      }
+    }
+  }
+
+  {
+    Metadata::IntMetadata::const_iterator i = 
+      field->metadata().intMetadata().begin();
+    Metadata::IntMetadata::const_iterator end = 
+      field->metadata().intMetadata().end();
+    for (; i != end; ++i) {
+      try {
+        OgOAttribute<int32_t>(metadataGroup, i->first, i->second);
+      }
+      catch (OgOAttributeException &e) {
+        Msg::print(Msg::SevWarning, "Writing attribute " + i->first + 
+                   " " + e.what());
+        return false;
+      }
+    }
+  }
+
+  {
+    Metadata::FloatMetadata::const_iterator i = 
+      field->metadata().floatMetadata().begin();
+    Metadata::FloatMetadata::const_iterator end = 
+      field->metadata().floatMetadata().end();
+    for (; i != end; ++i) {
+      try {
+        OgOAttribute<float32_t>(metadataGroup, i->first, i->second);
+      }
+      catch (OgOAttributeException &e) {
+        Msg::print(Msg::SevWarning, "Writing attribute " + i->first + 
+                   " " + e.what());
+        return false;
+      }
+    }
+  }
+
+  {
+    Metadata::VecIntMetadata::const_iterator i = 
+      field->metadata().vecIntMetadata().begin();
+    Metadata::VecIntMetadata::const_iterator end = 
+      field->metadata().vecIntMetadata().end();
+    for (; i != end; ++i) {
+      try {
+        OgOAttribute<veci32_t>(metadataGroup, i->first, i->second);
+      }
+      catch (OgOAttributeException &e) {
+        Msg::print(Msg::SevWarning, "Writing attribute " + i->first + 
+                   " " + e.what());
+        return false;
+      }
+    }
+  }
+
+  {
+    Metadata::VecFloatMetadata::const_iterator i = 
+      field->metadata().vecFloatMetadata().begin();
+    Metadata::VecFloatMetadata::const_iterator end = 
+      field->metadata().vecFloatMetadata().end();
+    for (; i != end; ++i) {
+      try {
+        OgOAttribute<vec32_t>(metadataGroup, i->first, i->second);
+      }
+      catch (OgOAttributeException &e) {
+        Msg::print(Msg::SevWarning, "Writing attribute " + i->first + 
+                   " " + e.what());
+        return false;
+      }
+    }
+
+  }
+
+  return true;
+
+}
+
+//----------------------------------------------------------------------------//
+
+bool Field3DOutputFile::writeMetadata(OgOGroup &metadataGroup)
+{
+  typedef FieldMetadata<Field3DFileBase> Metadata;
+
+  {
+    Metadata::StrMetadata::const_iterator i = 
+      metadata().strMetadata().begin();
+    Metadata::StrMetadata::const_iterator end = 
+      metadata().strMetadata().end();
+    for (; i != end; ++i) {
+      try {
+        OgOAttribute<string>(metadataGroup, i->first, i->second);
+      }
+      catch (OgOAttributeException &e) {
+        Msg::print(Msg::SevWarning, "Writing attribute " + i->first + 
+                   " " + e.what());
+        return false;
+      }
+    }
+  }
+
+  {
+    Metadata::IntMetadata::const_iterator i = 
+      metadata().intMetadata().begin();
+    Metadata::IntMetadata::const_iterator end = 
+      metadata().intMetadata().end();
+    for (; i != end; ++i) {
+      try {
+        OgOAttribute<int32_t>(metadataGroup, i->first, i->second);
+      }
+      catch (OgOAttributeException &e) {
+        Msg::print(Msg::SevWarning, "Writing attribute " + i->first + 
+                   " " + e.what());
+        return false;
+      }
+    }
+  }
+
+  {
+    Metadata::FloatMetadata::const_iterator i = 
+      metadata().floatMetadata().begin();
+    Metadata::FloatMetadata::const_iterator end = 
+      metadata().floatMetadata().end();
+    for (; i != end; ++i) {
+      try {
+        OgOAttribute<float32_t>(metadataGroup, i->first, i->second);
+      }
+      catch (OgOAttributeException &e) {
+        Msg::print(Msg::SevWarning, "Writing attribute " + i->first + 
+                   " " + e.what());
+        return false;
+      }
+    }
+  }
+
+  {
+    Metadata::VecIntMetadata::const_iterator i = 
+      metadata().vecIntMetadata().begin();
+    Metadata::VecIntMetadata::const_iterator end = 
+      metadata().vecIntMetadata().end();
+    for (; i != end; ++i) {
+      try {
+        OgOAttribute<veci32_t>(metadataGroup, i->first, i->second);
+      }
+      catch (OgOAttributeException &e) {
+        Msg::print(Msg::SevWarning, "Writing attribute " + i->first + 
+                   " " + e.what());
+        return false;
+      }
+    }
+  }
+
+  {
+    Metadata::VecFloatMetadata::const_iterator i = 
+      metadata().vecFloatMetadata().begin();
+    Metadata::VecFloatMetadata::const_iterator end = 
+      metadata().vecFloatMetadata().end();
+    for (; i != end; ++i) {
+      try {
+        OgOAttribute<vec32_t>(metadataGroup, i->first, i->second);
+      }
+      catch (OgOAttributeException &e) {
+        Msg::print(Msg::SevWarning, "Writing attribute " + i->first + 
+                   " " + e.what());
+        return false;
+      }
+    }
+
+  }
 
   return true;
 }
@@ -631,21 +834,11 @@ bool Field3DOutputFile::create(const string &filename, CreateMode cm)
 bool 
 Field3DOutputFile::writeGlobalMetadata()
 {
-
-#if 0
-
-  // Add metadata group and write it out  
-  H5ScopedGcreate metadataGroup(m_file, "field3d_global_metadata");
-  if (metadataGroup.id() < 0) {
-    Msg::print(Msg::SevWarning, "Error creating group: file metadata");
-    return false;
-  }  
-  if (!writeMetadata(metadataGroup.id())) {
+  OgOGroup ogMetadata(*m_root, "field3d_global_metadata");
+  if (!writeMetadata(ogMetadata)) {
     Msg::print(Msg::SevWarning, "Error writing file metadata.");
     return false;
-  }   
- 
-#endif
+  } 
  
   return true;
 }
@@ -711,6 +904,184 @@ Field3DOutputFile::incrementPartitionName(std::string &partitionName)
 
   return makeIntPartitionName(myPartitionName, nextIdx);
 }
+
+//----------------------------------------------------------------------------//
+
+File::Partition::Ptr
+Field3DOutputFile::createNewPartition(const std::string &partitionName,
+                                      const std::string & /* layerName */,
+                                      FieldRes::Ptr field)
+{
+  using namespace Exc;
+  
+  File::Partition::Ptr newPart(new File::Partition);
+  newPart->name = partitionName;
+
+  boost::shared_ptr<OgOGroup> ogPartition(new OgOGroup(*m_root, newPart->name));
+  newPart->setGroup(ogPartition);
+
+  m_partitions.push_back(newPart);
+
+  // Pick up new pointer
+  File::Partition::Ptr part = partition(partitionName);
+  
+  // Add mapping group to the partition
+  try {
+#if 0
+    if (!writeMapping(*ogPartition, field->mapping())) {
+      Msg::print(Msg::SevWarning, 
+                 "writeMapping returned false for an unknown reason ");
+      return File::Partition::Ptr();
+    }
+#endif
+  }
+  catch (WriteMappingException &e) {
+    Msg::print(Msg::SevWarning, "Couldn't write mapping for partition: " 
+               + partitionName);
+    return File::Partition::Ptr();
+  }
+  catch (...) {
+    Msg::print(Msg::SevWarning, 
+               "Unknown error when writing mapping for partition: " 
+               + partitionName);
+    return File::Partition::Ptr();    
+  }
+
+  // Set the mapping of the partition. Since all layers share their 
+  // partition's mapping, we can just pick this first one. All subsequent
+  // additions to the same partition are checked to have the same mapping
+  part->mapping = field->mapping();
+
+  // Tag node as partition
+  // Create a version attribute on the root node
+  OgOAttribute<string>(*ogPartition, "is_field3d_partition", "1");
+
+  return part;
+}
+
+//----------------------------------------------------------------------------//
+// Template implementations
+//----------------------------------------------------------------------------//
+
+template <class Data_T>
+bool Field3DOutputFile::writeLayer(const std::string &userPartitionName, 
+                                   const std::string &layerName, 
+                                   typename Field<Data_T>::Ptr field)
+{
+  using std::string;
+
+  // Null pointer check
+  if (!field) {
+    Msg::print(Msg::SevWarning,
+               "Called writeLayer with null pointer. Ignoring...");
+    return false;
+  }
+  
+  // Make sure archive is open
+  if (!m_archive) {
+    Msg::print(Msg::SevWarning, 
+               "Attempting to write layer without opening file first.");
+    return false;
+  }
+
+  // Get the partition name
+  string partitionName = intPartitionName(userPartitionName, layerName, field);
+
+  // Get the partition
+  File::Partition::Ptr part = partition(partitionName);
+
+  if (!part) {
+    // Create a new partition
+    part = createNewPartition(partitionName, layerName, field);
+    // Make sure it was created 
+    if (!part) {
+      return false;
+    }
+  } else {
+    // Check that we have a valid mapping
+    if (!field->mapping()) {
+      Msg::print(Msg::SevWarning, 
+                 "Couldn't add layer \"" + layerName + "\" to partition \""
+                 + partitionName + "\" because the layer's mapping is null.");
+      return false;    
+    }
+    // Check if the layer already exists. If it does, we need to make a 
+    // different partition
+    if (part->layer(layerName)) {
+      // Increment the internal partition name
+      partitionName = incrementPartitionName(partitionName);
+      // Create a new partition
+      part = createNewPartition(partitionName, layerName, field);
+      // Make sure it was created 
+      if (!part) {
+        return false;
+      }
+    }
+  }
+
+  // Check mapping not null
+  if (!part->mapping) {
+    Msg::print(Msg::SevWarning, "Severe error - partition mapping is null: " 
+              + partitionName);
+    return false;    
+  }
+
+  // Check that the mapping matches what's already in the Partition
+  if (!field->mapping()->isIdentical(part->mapping)) {
+    Msg::print(Msg::SevWarning, "Couldn't add layer \"" + layerName 
+              + "\" to partition \"" + partitionName 
+              + "\" because mapping doesn't match");
+    return false;
+  }
+
+  // Open the partition
+
+  OgOGroup &ogPartition = part->group();
+
+  // Build a Layer
+
+  File::Layer layer;
+  layer.name   = layerName;
+  layer.parent = partitionName;
+
+  // Add Layer to file ---
+
+  OgOGroup ogLayer(ogPartition, layerName);
+
+  // Tag as layer
+  OgOAttribute<string> classType(ogLayer, "class_type", "field3d_layer");
+
+  // Create metadata
+  OgOGroup ogMetadata(ogLayer, "metadata");
+
+  // Write metadata
+  writeMetadata(ogMetadata, field);
+
+  // Write field data
+  writeField(ogLayer, field);
+
+  // Add to partition
+
+  part->addLayer(layer);
+
+  return true;
+}
+
+//----------------------------------------------------------------------------//
+// Template instantiations
+//----------------------------------------------------------------------------//
+
+#define FIELD3D_INSTANTIATION_WRITELAYER(type)                          \
+  template                                                              \
+  bool Field3DOutputFile::writeLayer<type>                              \
+  (const std::string &, const std::string &, Field<type>::Ptr );        \
+  
+FIELD3D_INSTANTIATION_WRITELAYER(float16_t);
+FIELD3D_INSTANTIATION_WRITELAYER(float32_t);
+FIELD3D_INSTANTIATION_WRITELAYER(float64_t);
+FIELD3D_INSTANTIATION_WRITELAYER(vec16_t);
+FIELD3D_INSTANTIATION_WRITELAYER(vec32_t);
+FIELD3D_INSTANTIATION_WRITELAYER(vec64_t);
 
 //----------------------------------------------------------------------------//
 
