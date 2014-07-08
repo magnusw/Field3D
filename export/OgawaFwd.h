@@ -1,7 +1,8 @@
 //----------------------------------------------------------------------------//
 
 /*
- * Copyright (c) 2009 Sony Pictures Imageworks Inc
+ * Copyright (c) 2014 Sony Pictures Imageworks Inc., 
+ *                    Pixar Animation Studios Inc.
  *
  * All rights reserved.
  *
@@ -35,57 +36,42 @@
 
 //----------------------------------------------------------------------------//
 
-/*! \file Types.h
-  \brief Contains typedefs for the commonly used types in Field3D.
-  \ingroup field
+/*! \file OgawaFwd.h
+  \brief Contains forward declarations for Ogawa classes
 */
 
 //----------------------------------------------------------------------------//
 
-#ifndef _INCLUDED_Field3D_Types_H_
-#define _INCLUDED_Field3D_Types_H_
+#ifndef _INCLUDED_Field3D_OgawaFwd_H_
+#define _INCLUDED_Field3D_OgawaFwd_H_
+
+//----------------------------------------------------------------------------//
+// Forward declarations
+//----------------------------------------------------------------------------//
+
+class OgIGroup;
+class OgOGroup;
+
+template <typename T>
+class OgIAttribute;
+template <typename T>
+class OgOAttribute;
+
+template <typename T>
+class OgIDataset;
+template <typename T>
+class OgODataset;
+
+namespace Alembic {
+  namespace Ogawa {
+    namespace v7 {
+      class OArchive;
+      class IArchive;
+    }
+    using namespace v7;
+  }
+}
 
 //----------------------------------------------------------------------------//
 
-#ifdef FIELD3D_CUSTOM_MATH_LIB
-#  include FIELD3D_MATH_LIB_INCLUDE
-#else
-#  include "StdMathLib.h"
-#endif
-
-//----------------------------------------------------------------------------//
-// Types
-//----------------------------------------------------------------------------//
-
-#if !defined(_MSC_VER)
-using ::uint8_t;
-using ::int8_t;
-using ::uint16_t;
-using ::int16_t;
-using ::uint32_t;
-using ::int32_t;
-using ::uint64_t;
-using ::int64_t;
-#else
-typedef unsigned char           uint8_t;
-typedef signed char             int8_t;
-typedef unsigned short          uint16_t;
-typedef signed short            int16_t;
-typedef unsigned int            uint32_t;
-typedef int                     int32_t;
-typedef unsigned long long      uint64_t;
-typedef long long               int64_t;
-#endif
-
-typedef half                    float16_t;
-typedef float                   float32_t;
-typedef double                  float64_t;
-
-typedef Field3D::V3h            vec16_t;
-typedef Field3D::V3f            vec32_t;
-typedef Field3D::V3d            vec64_t;
-
-//----------------------------------------------------------------------------//
-
-#endif // Include guard
-
+#endif // include guard

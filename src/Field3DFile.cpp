@@ -1,7 +1,8 @@
 //----------------------------------------------------------------------------//
 
 /*
- * Copyright (c) 2009 Sony Pictures Imageworks Inc
+ * Copyright (c) 2014 Sony Pictures Imageworks Inc., 
+ *                    Pixar Animation Studios Inc.
  *
  * All rights reserved.
  *
@@ -42,20 +43,25 @@
 
 //----------------------------------------------------------------------------//
 
+#include "Field3DFile.h"
+
 #include <sys/stat.h>
 #ifndef WIN32
 #include <unistd.h>
 #endif
 
-#include <hdf5.h>
-#include <H5Epublic.h>
-
 #include <boost/tokenizer.hpp>
 #include <boost/utility.hpp>
 
-#include "Field3DFile.h"
 #include "Field.h"
 #include "ClassFactory.h"
+#include "OArchive.h"
+#include "OgIAttribute.h"
+#include "OgIDataset.h"
+#include "OgIGroup.h"
+#include "OgOAttribute.h"
+#include "OgODataset.h"
+#include "OgOGroup.h"
 
 //----------------------------------------------------------------------------//
 
@@ -70,8 +76,6 @@ FIELD3D_NAMESPACE_OPEN
 //----------------------------------------------------------------------------//
 
 using namespace Exc;
-using namespace Hdf5Util;
-using namespace File;
 
 //----------------------------------------------------------------------------//
 // Local namespace
@@ -90,8 +94,9 @@ namespace {
   //! This version is stored in every file to determine which library version
   //! produced it.
 
-  int k_currentFileVersion[3] =
-    { FIELD3D_MAJOR_VER, FIELD3D_MINOR_VER, FIELD3D_MICRO_VER };
+  V3i k_currentFileVersion = V3i(FIELD3D_MAJOR_VER, 
+                                 FIELD3D_MINOR_VER, 
+                                 FIELD3D_MICRO_VER);
   int k_minFileVersion[2] = { 0, 0 };
 
   // Function objects used only in this file -----------------------------------
@@ -196,15 +201,13 @@ namespace {
 
 //----------------------------------------------------------------------------//
 
-  static herr_t localPrintError( hid_t estack_id, void *stream )
-  {
-    printf("H5E message -----------------------\n");
-    return H5Eprint2(estack_id, static_cast<FILE*>(stream));
-  }
-  
+} // end of local namespace
+
+//----------------------------------------------------------------------------//
+// File namespace
 //----------------------------------------------------------------------------//
 
-} // end of local namespace
+namespace File {
 
 //----------------------------------------------------------------------------//
 // Partition implementations
@@ -284,21 +287,17 @@ Partition::getVectorLayerNames(std::vector<std::string> &names) const
 }
 
 //----------------------------------------------------------------------------//
+
+} // namespace File
+
+//----------------------------------------------------------------------------//
 // Field3DFileBase implementations
 //----------------------------------------------------------------------------//
 
 Field3DFileBase::Field3DFileBase()
-  : m_file(-1), m_metadata(this)
+  : m_metadata(this)
 {
-  // Suppressing HDF error messages
-  // Explanation about the function for the error stack is here:
-  // http://www.hdfgroup.org/HDF5/doc/RM/RM_H5E.html#Error-SetAuto2
-  if (getenv("DEBUG_HDF")) {
-    cerr << "Field3DFile -- HDF5 messages are on" << endl;
-    H5Eset_auto(H5E_DEFAULT, localPrintError, NULL);
-  } else {
-    H5Eset_auto(H5E_DEFAULT, NULL, NULL);
-  }
+  // Empty
 }
 
 //----------------------------------------------------------------------------//
@@ -340,7 +339,7 @@ Field3DFileBase::intPartitionName(const std::string &partitionName,
 
 //----------------------------------------------------------------------------//
 
-Partition::Ptr Field3DFileBase::partition(const string &partitionName) 
+File::Partition::Ptr Field3DFileBase::partition(const string &partitionName) 
 {
   for (PartitionList::iterator i = m_partitions.begin();
        i != m_partitions.end(); ++i) {
@@ -348,12 +347,12 @@ Partition::Ptr Field3DFileBase::partition(const string &partitionName)
       return *i;
   }
 
-  return Partition::Ptr();
+  return File::Partition::Ptr();
 }
 
 //----------------------------------------------------------------------------//
 
-Partition::Ptr
+File::Partition::Ptr
 Field3DFileBase::partition(const string &partitionName) const
 {
   for (PartitionList::const_iterator i = m_partitions.begin();
@@ -362,7 +361,7 @@ Field3DFileBase::partition(const string &partitionName) const
       return *i;
   }
 
-  return Partition::Ptr();
+  return File::Partition::Ptr();
 }
 
 //----------------------------------------------------------------------------//
@@ -405,7 +404,7 @@ Field3DFileBase::getScalarLayerNames(vector<string> &names,
 
   for (int i = 0; i < numIntPartitions(partitionName); i++) {
     string internalName = makeIntPartitionName(partitionName, i);
-    Partition::Ptr part = partition(internalName);
+    File::Partition::Ptr part = partition(internalName);
     if (part)
       part->getScalarLayerNames(names);
   }
@@ -423,7 +422,7 @@ Field3DFileBase::getVectorLayerNames(vector<string> &names,
 
   for (int i = 0; i < numIntPartitions(partitionName); i++) {
     string internalName = makeIntPartitionName(partitionName, i);
-    Partition::Ptr part = partition(internalName);
+    File::Partition::Ptr part = partition(internalName);
     if (part)
       part->getVectorLayerNames(names);
   }
@@ -452,7 +451,7 @@ Field3DFileBase::getIntScalarLayerNames(vector<string> &names,
 {
   names.clear();
 
-  Partition::Ptr part = partition(intPartitionName);
+  File::Partition::Ptr part = partition(intPartitionName);
 
   if (!part) {
     Msg::print("getIntScalarLayerNames no partition: " + intPartitionName);
@@ -470,7 +469,7 @@ Field3DFileBase::getIntVectorLayerNames(vector<string> &names,
 {
   names.clear();
 
-  Partition::Ptr part = partition(intPartitionName);
+  File::Partition::Ptr part = partition(intPartitionName);
 
   if (!part) {
     Msg::print("getIntVectorLayerNames no partition: " + intPartitionName);    
@@ -496,19 +495,6 @@ bool Field3DFileBase::close()
   closeInternal();
 
   return true;
-}
-
-//----------------------------------------------------------------------------//
-
-void Field3DFileBase::closeInternal()
-{
-  if (m_file != -1) {
-    if (H5Fclose(m_file) < 0) {
-      Msg::print(Msg::SevWarning, "Failed to close hdf5 file handle");
-      return;
-    }    
-    m_file = -1;
-  }
 }
 
 //----------------------------------------------------------------------------//
@@ -585,619 +571,14 @@ bool Field3DInputFile::open(const string &filename)
 
   bool success = true;
 
+  // Record filename
   m_filename = filename;
 
-  try {
+  // Open the Ogawa archive
+  m_archive.reset(new Alembic::Ogawa::IArchive(filename));
 
-    string version;
-
-    // Throws exceptions if the file doesn't exist.
-    // This was added because H5Fopen prints out a lot of junk
-    // to the terminal.
-    checkFile(filename);
-
-    m_file = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
-
-    if (m_file < 0)
-      throw NoSuchFileException(filename);
-
-    int fileVersion[3];
-    try { 
-      if (!readAttribute(m_file, k_versionAttrName, 3, fileVersion[0])) {
-        //Msg::print(Msg::SevWarning, "Missing version_number attribute");
-      } else {
-        if (!isSupportedFileVersion(fileVersion, k_minFileVersion)) {
-          stringstream versionStr;
-          versionStr << fileVersion[0] << "."
-                     << fileVersion[1] << "."
-                     << fileVersion[2];
-          throw UnsupportedVersionException(versionStr.str());
-        }
-      }
-    }
-    catch (MissingAttributeException &) {
-      //Msg::print(Msg::SevWarning, "Missing version_number attribute");
-    }
-
-    try { 
-      if (H5Lexists(m_file, "field3d_global_metadata", H5P_DEFAULT)) {      
-        // read the metadata 
-        H5ScopedGopen metadataGroup(m_file, "field3d_global_metadata");
-        if (metadataGroup.id() > 0) {    
-          readMetadata(metadataGroup.id());
-        }
-      }
-    }
-    catch (...) {
-      Msg::print(Msg::SevWarning, 
-                 "Unknown error when reading file metadata ");
-      //throw BadFileHierarchyException(filename);
-    }
-
-    try {
-      if (!readPartitionAndLayerInfo()) {
-        success = false;
-      }
-    } 
-    catch (MissingGroupException &e) {
-      Msg::print(Msg::SevWarning, "Missing group: " + string(e.what()));
-      throw BadFileHierarchyException(filename);
-    }
-    catch (ReadMappingException &e) {
-      Msg::print(Msg::SevWarning, "Couldn't read mapping for partition: " 
-                + string(e.what()));
-      throw BadFileHierarchyException(filename);
-    }
-    catch (Exception &e) {
-      Msg::print(Msg::SevWarning, "Unknown error when reading file hierarchy: "
-                + string(e.what()));
-      throw BadFileHierarchyException(filename);
-    }
-    catch (...) {
-      Msg::print(Msg::SevWarning, 
-                 "Unknown error when reading file hierarchy. ");
-      throw BadFileHierarchyException(filename);
-    }
-
-  }
-  catch (NoSuchFileException &e) {
-    Msg::print(Msg::SevWarning, "Couldn't open file: " 
-              + string(e.what()) );
-    success = false;    
-  }
-  catch (MissingAttributeException &e) {
-    Msg::print(Msg::SevWarning, 
-               "In file: " + filename + " - "
-              + string(e.what()) );
-    success = false;
-  }
-  catch (UnsupportedVersionException &e) {    
-    Msg::print(Msg::SevWarning, 
-               "In file: " + filename + " - File version can not be read: " 
-              + string(e.what()));
-    success = false;    
-  }
-  catch (BadFileHierarchyException &) {
-    Msg::print(Msg::SevWarning, 
-               "In file: " + filename + " - Bad file hierarchy. ");
-    success = false;    
-  }
-  catch (...) {
-    Msg::print(Msg::SevWarning, 
-               "In file: " + filename + " Unknown exception ");
-    success = false;
-  }
-
-  if (!success)
-    close();
-  
   return success;
 }
-
-//----------------------------------------------------------------------------//
-
-bool Field3DInputFile::readPartitionAndLayerInfo()
-{
-  using namespace InputFile;
-
-  // First, find the partitions ---
-
-  herr_t status;
-  status = H5Literate(m_file, H5_INDEX_NAME, H5_ITER_NATIVE, NULL, 
-                      &parsePartitions, this);
-
-  // Get the partition names to store 
-  m_partitions.clear();
-
-  for (size_t i=0; i < m_partitionNames.size(); i++) {
-    Partition::Ptr part(new Partition);
-    part->name = m_partitionNames[i];    
-    m_partitions.push_back(part);
-  }
-  
-  // For each partition, find its mapping ---
-
-  for (PartitionList::iterator i = m_partitions.begin();
-       i != m_partitions.end(); ++i) {
-
-    // Open the partition
-    H5ScopedGopen partitionGroup(m_file, (**i).name);
-
-    string mappingPath = "/" + (**i).name + "/" + k_mappingStr;
-
-    // Open up the mapping group
-    H5ScopedGopen mappingGroup(m_file, mappingPath);
-    if (mappingGroup.id() < 0)
-      throw MissingGroupException((**i).name + "/" + k_mappingStr);
-
-    // Try to build a mapping from it
-    FieldMapping::Ptr mapping;
-
-    mapping = readFieldMapping(mappingGroup.id());
-    if (!mapping) {
-      Msg::print(Msg::SevWarning, "Got a null pointer when reading mapping");
-      throw ReadMappingException((**i).name);
-    }
-    
-    // Attach the mapping to the partition
-    (**i).mapping = mapping;
-
-  }
-
-  // ... And then find its layers ---
-
-  for (PartitionList::const_iterator i = m_partitions.begin();
-       i != m_partitions.end(); ++i) {
-
-    // Open the partition
-    H5ScopedGopen partitionGroup(m_file, (**i).name);
-    
-    // Set up the info struct for the callback
-    ParseLayersInfo info;
-    info.file = this;
-    info.partitionName = (**i).name;
-
-    m_layerInfo.clear();
-
-    status = H5Literate(partitionGroup.id(), H5_INDEX_NAME, H5_ITER_NATIVE, 
-                        NULL, &parseLayers, &info);
-
-    //set the layer information on the partitions here
-
-    for (std::vector<LayerInfo>::iterator i = m_layerInfo.begin();
-         i != m_layerInfo.end(); i++) {
-
-      std::string parent = i->parentName;      
-
-      Partition::Ptr part = partition(parent);
-
-      Layer layer;
-      layer.name = i->name;
-      layer.parent = i->parentName;
-      if (i->components == 1) {
-        part->addScalarLayer(layer);
-      } else if (i->components == 3) {
-        part->addVectorLayer(layer);
-      }
-    }
-
-  }
-
-  return true;
-}
-
-//----------------------------------------------------------------------------//
-
-herr_t Field3DInputFile::parsePartition(hid_t /* loc_id */, 
-                                        const std::string itemName)
-{
-  // Add the partition ---
-  
-  m_partitionNames.push_back(string(itemName));
-  return 0;
-}
-
-//----------------------------------------------------------------------------//
-
-//! \note Don't throw exceptions into the hdf5 lib.
-//! \todo Set some sort of flag if we fail during this call. We can't
-//! throw exceptions inside hdf5.
-herr_t Field3DInputFile::parseLayer(hid_t layerGroup, 
-                               const std::string &partitionName,
-                               const std::string &layerName)
-{
-  int components;
-  if (!readAttribute(layerGroup, string("components"), 1, components)) {
-    Msg::print(Msg::SevWarning, "Couldn't read components attribute for layer " 
-              + partitionName + "/" + layerName);
-    return 0;
-  }
-
-  LayerInfo linfo(partitionName,layerName,components);
-
-  m_layerInfo.push_back(linfo);
-
-  return 0;
-}
-
-//----------------------------------------------------------------------------//
-
-//! \todo Replace char* with std::string
-bool  
-Field3DInputFile::
-readMetadata(hid_t metadata_id, FieldBase::Ptr field) const
-{
-
-  hsize_t num_attrs = H5Aget_num_attrs(metadata_id);
-
-  if (num_attrs > 0) { 
-    for (hsize_t idx=0; idx < num_attrs ; ++idx) {
-      H5ScopedAopenIdx attrIdx(metadata_id, idx);
-      size_t len = H5Aget_name(attrIdx.id(), 0, NULL);
-      if (len > 0) {
-        char *name = new char[len+1];
-        if (H5Aget_name(attrIdx.id(), len+1, name) > 0) {
-          H5ScopedAopen attr(metadata_id, name, H5P_DEFAULT);
-          H5ScopedAget_space attrSpace(attr);
-          H5ScopedAget_type attrType(attr);           
-          H5T_class_t typeClass = H5Tget_class(attrType);
-
-          if (typeClass == H5T_STRING) { 
-            string value;
-            if (!readAttribute(metadata_id, name, value)) {
-              Msg::print(Msg::SevWarning, 
-                         "Failed to read metadata " + string(name));
-              if (name) {
-                delete[] name;
-              }
-              continue;
-            }
-            field->metadata().setStrMetadata(name, value);
-             
-          }
-          else {
-
-            if (H5Sget_simple_extent_ndims(attrSpace) != 1) {
-              Msg::print(Msg::SevWarning, "Bad attribute rank for attribute " 
-                        + string(name));
-              if (name) {
-                delete[] name;
-              }
-              continue;
-            }            
-
-            hsize_t dims[1];
-            H5Sget_simple_extent_dims(attrSpace, dims, NULL);
- 
-            if (typeClass == H5T_INTEGER) { 
-              if (dims[0] == 1){
-                int value;
-                if (!readAttribute(metadata_id, name, dims[0], value))
-                  Msg::print(Msg::SevWarning, "Failed to read metadata " 
-                            + string(name));
-                field->metadata().setIntMetadata(name, value);
-              }
-              else if (dims[0] == 3){
-                V3i value;
-                if (!readAttribute(metadata_id, name, dims[0], value.x))
-                  Msg::print(Msg::SevWarning, "Failed to read metadata " + 
-                            string(name) );
-                field->metadata().setVecIntMetadata(name, value);
-              }
-              else {
-                Msg::print(Msg::SevWarning, 
-                           "Attribute of size " + 
-                           boost::lexical_cast<std::string>(dims[0]) 
-                           + " is not valid for metadata");
-              }
-            }
-            else if (typeClass == H5T_FLOAT) { 
-              if (dims[0] == 1){
-                float value;
-                if (!readAttribute(metadata_id, name, dims[0], value))
-                  Msg::print(Msg::SevWarning, "Failed to read metadata " + 
-                            string(name) );
-                
-                field->metadata().setFloatMetadata(name, value);
-              }
-              else if (dims[0] == 3){
-                V3f value;
-                if (!readAttribute(metadata_id, name, dims[0], value.x))
-                  Msg::print(Msg::SevWarning, "Failed to read metadata "+ 
-                            string(name) );
-                field->metadata().setVecFloatMetadata(name, value);
-              }
-              else {
-                Msg::print(Msg::SevWarning, "Attribute of size " +
-                           boost::lexical_cast<std::string>(dims[0]) +
-                           " is not valid for metadata");
-              }
-            }
-            else {               
-              Msg::print(Msg::SevWarning, "Attribute '" + string(name) + 
-                        + "' has unsupported data type for metadata");
-              
-            }
-          }
-        }
-        if (name) {
-          delete[] name;
-        }
-      }
-    }
-  }
-
-  return true;
-}
-
-//----------------------------------------------------------------------------//
-
-//! \todo Replace char* with std::string
-bool  
-Field3DInputFile::readMetadata(hid_t metadata_id)
-{
-
-  hsize_t num_attrs = H5Aget_num_attrs(metadata_id);
-
-  if (num_attrs > 0) { 
-    for (hsize_t idx=0; idx < num_attrs ; ++idx) {
-      H5ScopedAopenIdx attrIdx(metadata_id, idx);
-      size_t len = H5Aget_name(attrIdx.id(), 0, NULL);
-      if (len > 0) {
-        char *name = new char[len+1];
-        if (H5Aget_name(attrIdx.id(), len+1, name) > 0) {
-          H5ScopedAopen attr(metadata_id, name, H5P_DEFAULT);
-          H5ScopedAget_space attrSpace(attr);
-          H5ScopedAget_type attrType(attr);           
-          H5T_class_t typeClass = H5Tget_class(attrType);
-
-          if (typeClass == H5T_STRING) { 
-            string value;
-            if (!readAttribute(metadata_id, name, value)) {
-              Msg::print(Msg::SevWarning, 
-                         "Failed to read metadata " + string(name));
-              if (name) {
-                delete[] name;
-              }
-              continue;
-            }
-            metadata().setStrMetadata(name, value);
-             
-          }
-          else {
-
-            if (H5Sget_simple_extent_ndims(attrSpace) != 1) {
-              Msg::print(Msg::SevWarning, "Bad attribute rank for attribute " 
-                        + string(name));
-              if (name) {
-                delete[] name;
-              }
-              continue;
-            }            
-
-            hsize_t dims[1];
-            H5Sget_simple_extent_dims(attrSpace, dims, NULL);
- 
-            if (typeClass == H5T_INTEGER) { 
-              if (dims[0] == 1){
-                int value;
-                if (!readAttribute(metadata_id, name, dims[0], value))
-                  Msg::print(Msg::SevWarning, "Failed to read metadata " 
-                            + string(name));
-                metadata().setIntMetadata(name, value);
-              }
-              else if (dims[0] == 3){
-                V3i value;
-                if (!readAttribute(metadata_id, name, dims[0], value.x))
-                  Msg::print(Msg::SevWarning, "Failed to read metadata " + 
-                            string(name) );
-                metadata().setVecIntMetadata(name, value);
-              }
-              else {
-                Msg::print(Msg::SevWarning, 
-                           "Attribute of size " + 
-                           boost::lexical_cast<std::string>(dims[0]) 
-                           + " is not valid for metadata");
-              }
-            }
-            else if (typeClass == H5T_FLOAT) { 
-              if (dims[0] == 1){
-                float value;
-                if (!readAttribute(metadata_id, name, dims[0], value))
-                  Msg::print(Msg::SevWarning, "Failed to read metadata " + 
-                            string(name) );
-                
-                metadata().setFloatMetadata(name, value);
-              }
-              else if (dims[0] == 3){
-                V3f value;
-                if (!readAttribute(metadata_id, name, dims[0], value.x))
-                  Msg::print(Msg::SevWarning, "Failed to read metadata "+ 
-                            string(name) );
-                metadata().setVecFloatMetadata(name, value);
-              }
-              else {
-                Msg::print(Msg::SevWarning, "Attribute of size " +
-                           boost::lexical_cast<std::string>(dims[0]) +
-                           " is not valid for metadata");
-              }
-            }
-            else {               
-              Msg::print(Msg::SevWarning, "Attribute '" + string(name) + 
-                        + "' has unsupported data type for metadata");
-              
-            }
-          }
-        }
-        if (name) {
-          delete[] name;
-        }
-      }
-    }
-  }
-
-  return true;
-}
-
-//----------------------------------------------------------------------------//
-
-bool
-Field3DInputFile::
-readGroupMembership(GroupMembershipMap &gpMembershipMap)
-{
-  if (!H5Lexists(m_file, "field3d_group_membership", H5P_DEFAULT)) {
-    return false;
-  }
-
-  H5ScopedGopen memberGroup(m_file, "field3d_group_membership");
-  if (memberGroup < 0) {
-    return false;
-  }
-  
-  typedef boost::tokenizer<boost::char_separator<char> > Tok;
-
-  hsize_t num_attrs = H5Aget_num_attrs(memberGroup);
-  if (num_attrs > 0) { 
-    
-    for (hsize_t idx=0; idx < num_attrs ; ++idx) {
-      H5ScopedAopenIdx attrIdx(memberGroup, idx);        
-      size_t len = H5Aget_name(attrIdx.id(), 0, NULL);
-      if (len>0) {
-        char *name = new char[len+1];
-        if (H5Aget_name(attrIdx.id(), len+1, name) > 0) {
-
-          if (string(name) == "is_field3d_group_membership")
-            continue;
-
-          H5ScopedAopen attr(memberGroup, name, H5P_DEFAULT);
-          H5ScopedAget_space attrSpace(attr);
-          H5ScopedAget_type attrType(attr);           
-          H5T_class_t typeClass = H5Tget_class(attrType);
-
-          if (typeClass == H5T_STRING) { 
-            string value;
-            if (!readAttribute(memberGroup, name, value)) {
-              Msg::print(Msg::SevWarning, 
-                         "Failed to read group membership data  " 
-                        + string(name));
-              continue;
-            }
-
-            {
-              boost::char_separator<char> sep(" :");
-              Tok tok(value, sep);
-              string new_value;
-              for(Tok::iterator beg=tok.begin(); beg!=tok.end();){
-
-                string fieldgroup = *beg; ++beg;
-                fieldgroup = removeUniqueId(fieldgroup) + ":" + *beg; ++beg;
-                new_value += fieldgroup + " "; 
-              }
-
-              m_groupMembership[name] = value;
-              gpMembershipMap[name] = new_value;
-            }
-          }
-        }
-      }
-    }
-  }
-
-  return true;
-}
-
-//----------------------------------------------------------------------------//
-// Field3DFile-related callback functions
-//----------------------------------------------------------------------------//
-
-namespace InputFile {
-
-//----------------------------------------------------------------------------//
-
-herr_t parsePartitions(hid_t loc_id, const char *itemName, 
-                       const H5L_info_t * /* linfo */, void *opdata)
-{
-  herr_t          status;
-  H5O_info_t      infobuf;
-
-  status = H5Oget_info_by_name(loc_id, itemName, &infobuf, H5P_DEFAULT);
-
-  if (status < 0) {
-    return -1;
-  }
-  
-  if (infobuf.type == H5O_TYPE_GROUP) {
-
-    // Check that we have a name 
-    if (!itemName) {
-      return -1;
-    }
-
-    // check that this group is not "groupMembership"
-    if (string(itemName) != "field3d_group_membership" &&
-        string(itemName) != "field3d_global_metadata")
-    { 
-
-      // Get a pointer to the file data structure
-      Field3DInputFile* fileObject = static_cast<Field3DInputFile*>(opdata);
-      if (!fileObject) {
-        return -1;
-      }
-      
-      return fileObject->parsePartition(loc_id, itemName);
-    }
-  }
-  return 0;
-}
-
-//----------------------------------------------------------------------------//
-
-herr_t parseLayers(hid_t loc_id, const char *itemName, 
-                   const H5L_info_t * /* linfo */, void *opdata)
-{
-  herr_t          status;
-  H5O_info_t      infobuf;
-  
-  status = H5Oget_info_by_name (loc_id, itemName, &infobuf, H5P_DEFAULT);
-
-  if (infobuf.type == H5O_TYPE_GROUP) {
-
-    // Check that we have a name 
-    if (!itemName)
-      return -1;
-
-    // Get a pointer to the file data structure
-    ParseLayersInfo* info = static_cast<ParseLayersInfo*>(opdata);
-    if (!info) 
-      return -1;
-
-    // Open up the layer group
-    H5ScopedGopen layerGroup(loc_id, itemName);
-
-    // Check if it's a layer
-    string classType;
-    try {
-      if (!readAttribute(layerGroup.id(), "class_type", classType)) {
-        return 0;
-      }
-      if (classType == string("field3d_layer")) 
-        return info->file->parseLayer(layerGroup.id(), info->partitionName,
-                                      itemName);
-                                   
-    }
-    catch (MissingAttributeException &) {
-      
-    }
-    return 0;
-
-  }
-
-  return 0;
-}
-
-//----------------------------------------------------------------------------//
-
-} // namespace InputFile
 
 //----------------------------------------------------------------------------//
 // Field3DOutputFile implementations
@@ -1217,243 +598,32 @@ Field3DOutputFile::~Field3DOutputFile()
 
 //----------------------------------------------------------------------------//
 
-//! \todo If the file can't be created hdf5 spits out an ugly error msg,
-//! we should make sure that doesn't happen.
 bool Field3DOutputFile::create(const string &filename, CreateMode cm)
 {
   closeInternal();
 
-  bool success = true;
-
-  try {
-
-    hid_t faid = H5Pcreate(H5P_FILE_ACCESS);
-    H5Pset_libver_bounds(faid, H5F_LIBVER_LATEST, H5F_LIBVER_LATEST);
-
-    // Create new file
-    switch (cm) {
-    case OverwriteMode:
-      m_file = H5Fcreate(filename.c_str(), 
-                         H5F_ACC_TRUNC, H5P_DEFAULT, faid);
-      break;
-    case FailOnExisting:
-      m_file = H5Fcreate(filename.c_str(), 
-                         H5F_ACC_EXCL, H5P_DEFAULT, faid);
-      break;
-    }
-    
-    // Check that file was created
-    if (m_file < 0)
-      throw ErrorCreatingFileException(filename);
-    
-    // Create a version attribute on the root node
-    if (!writeAttribute(m_file, k_versionAttrName, 3,
-                        k_currentFileVersion[0])) {
-      Msg::print(Msg::SevWarning, "Adding version number.");
-      closeInternal();
-      return false;
-    }
-
-  }
-  catch (ErrorCreatingFileException &e) {
-    Msg::print(Msg::SevWarning, "Couldn't create file: " + string(e.what()) );
-    success = false;
-  } 
-  catch (WriteAttributeException &e) {
-    Msg::print(Msg::SevWarning, "In file : " + filename +
-              " - Couldn't add attribute " + string(e.what()) );
-    success = false;
-  }
-  catch (...) {
-    Msg::print(Msg::SevWarning, 
-               "Unknown error when creating file: " + filename );
-    success = false;
+  if (cm == FailOnExisting && fileExists(filename)) {
+    return false;
   }
 
-  return success;
-}
+  // Create the Ogawa archive
+  m_archive.reset(new Alembic::Ogawa::OArchive(filename));
 
-//----------------------------------------------------------------------------//
-
-bool Field3DOutputFile::writeMapping(hid_t partitionGroup, 
-                                     FieldMapping::Ptr mapping)
-{
-  try {
-    // Make a group under the partition to store the mapping data
-    H5ScopedGcreate mappingGroup(partitionGroup, k_mappingStr);
-    if (mappingGroup.id() < 0)
-      throw CreateGroupException(k_mappingStr);
-    // Let FieldMappingIO handle the rest
-    if (!writeFieldMapping(mappingGroup.id(), mapping))
-      throw WriteMappingException(k_mappingStr);       
-  }
-  catch (CreateGroupException &e) {
-    Msg::print(Msg::SevWarning, "Couldn't create group: " + string(e.what()) );
-    throw WriteMappingException(k_mappingStr);
-  }
-  return true;
-}
-
-//----------------------------------------------------------------------------//
-
-bool Field3DOutputFile::writeMetadata(hid_t metadataGroup, FieldBase::Ptr field)
-{
-  using namespace Hdf5Util;
-
-  {
-    FieldMetadata<FieldBase>::StrMetadata::const_iterator i = 
-      field->metadata().strMetadata().begin();
-    FieldMetadata<FieldBase>::StrMetadata::const_iterator end = 
-      field->metadata().strMetadata().end();
-    for (; i != end; ++i) {
-      if (!writeAttribute(metadataGroup, i->first, i->second))
-      {
-        Msg::print(Msg::SevWarning, "Writing attribute " + i->first );
-        return false;
-      }
-    }
+  // Check that it's valid
+  if (!m_archive->isValid()) {
+    return false;
   }
 
-  {
-    FieldMetadata<FieldBase>::IntMetadata::const_iterator i = 
-      field->metadata().intMetadata().begin();
-    FieldMetadata<FieldBase>::IntMetadata::const_iterator end = 
-      field->metadata().intMetadata().end();
-    for (; i != end; ++i) {
-      if (!writeAttribute(metadataGroup, i->first, 1, i->second))
-      {
-        Msg::print(Msg::SevWarning, "Writing attribute " + i->first);
-        return false;
-      }
-    }
-  }
+  // Get the root
+  m_root.reset(new OgOGroup(*m_archive));
 
-  {
-    FieldMetadata<FieldBase>::FloatMetadata::const_iterator i = 
-      field->metadata().floatMetadata().begin();
-    FieldMetadata<FieldBase>::FloatMetadata::const_iterator end = 
-      field->metadata().floatMetadata().end();
-    for (; i != end; ++i) {
-      if (!writeAttribute(metadataGroup, i->first, 1, i->second))
-      {
-        Msg::print(Msg::SevWarning, "Writing attribute " + i->first);
-        return false;
-      }
-    }
-  }
-
-  {
-    FieldMetadata<FieldBase>::VecIntMetadata::const_iterator i = 
-      field->metadata().vecIntMetadata().begin();
-    FieldMetadata<FieldBase>::VecIntMetadata::const_iterator end = 
-      field->metadata().vecIntMetadata().end();
-    for (; i != end; ++i) {
-      if (!writeAttribute(metadataGroup, i->first, 3, i->second.x))
-      {
-        Msg::print(Msg::SevWarning, "Writing attribute " + i->first);
-        return false;
-      }
-    }
-  }
-
-  {
-    FieldMetadata<FieldBase>::VecFloatMetadata::const_iterator i = 
-      field->metadata().vecFloatMetadata().begin();
-    FieldMetadata<FieldBase>::VecFloatMetadata::const_iterator end = 
-      field->metadata().vecFloatMetadata().end();
-    for (; i != end; ++i) {
-      if (!writeAttribute(metadataGroup, i->first, 3, i->second.x))
-      {
-        Msg::print(Msg::SevWarning, "Writing attribute " + i->first);
-        return false;
-      }
-    }
-
-  }
+  // Create the version attribute
+#if 0
+  OgOAttribute<veci32_t> f3dVersion(*m_root, k_versionAttrName, 
+                                    k_currentFileVersion);
+#endif
 
   return true;
-
-}
-
-//----------------------------------------------------------------------------//
-
-bool Field3DOutputFile::writeMetadata(hid_t metadataGroup)
-{
-  using namespace Hdf5Util;
-
-  {
-    FieldMetadata<Field3DFileBase>::StrMetadata::const_iterator i = 
-      metadata().strMetadata().begin();
-    FieldMetadata<Field3DFileBase>::StrMetadata::const_iterator end = 
-      metadata().strMetadata().end();
-    for (; i != end; ++i) {
-      if (!writeAttribute(metadataGroup, i->first, i->second))
-      {
-        Msg::print(Msg::SevWarning, "Writing attribute " + i->first );
-        return false;
-      }
-    }
-  }
-
-  {
-    FieldMetadata<Field3DFileBase>::IntMetadata::const_iterator i = 
-      metadata().intMetadata().begin();
-    FieldMetadata<Field3DFileBase>::IntMetadata::const_iterator end = 
-      metadata().intMetadata().end();
-    for (; i != end; ++i) {
-      if (!writeAttribute(metadataGroup, i->first, 1, i->second))
-      {
-        Msg::print(Msg::SevWarning, "Writing attribute " + i->first);
-        return false;
-      }
-    }
-  }
-
-  {
-    FieldMetadata<Field3DFileBase>::FloatMetadata::const_iterator i = 
-      metadata().floatMetadata().begin();
-    FieldMetadata<Field3DFileBase>::FloatMetadata::const_iterator end = 
-      metadata().floatMetadata().end();
-    for (; i != end; ++i) {
-      if (!writeAttribute(metadataGroup, i->first, 1, i->second))
-      {
-        Msg::print(Msg::SevWarning, "Writing attribute " + i->first);
-        return false;
-      }
-    }
-  }
-
-  {
-    FieldMetadata<Field3DFileBase>::VecIntMetadata::const_iterator i = 
-      metadata().vecIntMetadata().begin();
-    FieldMetadata<Field3DFileBase>::VecIntMetadata::const_iterator end = 
-      metadata().vecIntMetadata().end();
-    for (; i != end; ++i) {
-      if (!writeAttribute(metadataGroup, i->first, 3, i->second.x))
-      {
-        Msg::print(Msg::SevWarning, "Writing attribute " + i->first);
-        return false;
-      }
-    }
-  }
-
-  {
-    FieldMetadata<Field3DFileBase>::VecFloatMetadata::const_iterator i = 
-      metadata().vecFloatMetadata().begin();
-    FieldMetadata<Field3DFileBase>::VecFloatMetadata::const_iterator end = 
-      metadata().vecFloatMetadata().end();
-    for (; i != end; ++i) {
-      if (!writeAttribute(metadataGroup, i->first, 3, i->second.x))
-      {
-        Msg::print(Msg::SevWarning, "Writing attribute " + i->first);
-        return false;
-      }
-    }
-
-  }
-
-  return true;
-
 }
 
 //----------------------------------------------------------------------------//
@@ -1461,6 +631,8 @@ bool Field3DOutputFile::writeMetadata(hid_t metadataGroup)
 bool 
 Field3DOutputFile::writeGlobalMetadata()
 {
+
+#if 0
 
   // Add metadata group and write it out  
   H5ScopedGcreate metadataGroup(m_file, "field3d_global_metadata");
@@ -1471,7 +643,9 @@ Field3DOutputFile::writeGlobalMetadata()
   if (!writeMetadata(metadataGroup.id())) {
     Msg::print(Msg::SevWarning, "Error writing file metadata.");
     return false;
-  }    
+  }   
+ 
+#endif
  
   return true;
 }
@@ -1481,6 +655,9 @@ Field3DOutputFile::writeGlobalMetadata()
 bool 
 Field3DOutputFile::writeGroupMembership()
 {
+
+#if 0
+
   using namespace std;
   using namespace Hdf5Util;
 
@@ -1512,6 +689,8 @@ Field3DOutputFile::writeGroupMembership()
       return false;
     }        
   }
+
+#endif
   
   return true;
 }
@@ -1531,113 +710,6 @@ Field3DOutputFile::incrementPartitionName(std::string &partitionName)
   }
 
   return makeIntPartitionName(myPartitionName, nextIdx);
-}
-
-//----------------------------------------------------------------------------//
-// Debug
-//----------------------------------------------------------------------------//
-
-void Field3DFileBase::printHierarchy() const
-{
-  // For each partition
-  for (PartitionList::const_iterator i = m_partitions.begin();
-       i != m_partitions.end(); ++i) {
-    cout << "Name: " << (**i).name << endl;
-    if ((**i).mapping)
-      cout << "  Mapping: " << (**i).mapping->className() << endl;
-    else 
-      cout << "  Mapping: NULL" << endl;
-    cout << "  Scalar layers: " << endl;
-    vector<string> sNames;
-    (**i).getScalarLayerNames(sNames);
-    for_each(sNames.begin(), sNames.end(), print<string>(4));
-    cout << "  Vector layers: " << endl;
-    vector<string> vNames;
-    (**i).getVectorLayerNames(vNames);
-    for_each(vNames.begin(), vNames.end(), print<string>(4));
-  }
-}
-
-//----------------------------------------------------------------------------//
-// Function Implementations
-//----------------------------------------------------------------------------//
-
-bool writeField(hid_t layerGroup, FieldBase::Ptr field)
-{
-  ClassFactory &factory = ClassFactory::singleton();
-    
-  FieldIO::Ptr io = factory.createFieldIO(field->className());
-  assert(io != 0);
-  if (!io) {
-    Msg::print(Msg::SevWarning, "Unable to find class type: " + 
-               field->className());
-    return false;
-  }
-
-  // Add class name attribute
-  if (!writeAttribute(layerGroup, k_classNameAttrName, 
-                      field->className())) {
-    Msg::print(Msg::SevWarning, "Error adding class name attribute.");
-    return false;
-  }
-
-  return io->write(layerGroup, field);
-}
-
-//----------------------------------------------------------------------------//
-
-FieldMapping::Ptr readFieldMapping(hid_t mappingGroup)
-{
-  ClassFactory &factory = ClassFactory::singleton();
-
-  std::string className;
-
-  if (!readAttribute(mappingGroup, k_mappingTypeAttrName, className)) {
-    Msg::print(Msg::SevWarning, "Couldn't find " + k_mappingTypeAttrName + 
-              " attribute");
-    return FieldMapping::Ptr();    
-  }
-
-  FieldMappingIO::Ptr io = factory.createFieldMappingIO(className);
-  assert(io != 0);
-  if (!io) {
-    Msg::print(Msg::SevWarning, "Unable to find class type: " + 
-               className);
-    return FieldMapping::Ptr();
-  }
-
-
-  FieldMapping::Ptr mapping = io->read(mappingGroup);
-  if (!mapping) {
-    Msg::print(Msg::SevWarning, "Couldn't read mapping");
-    return FieldMapping::Ptr();
-  }
-  
-  return mapping;
-}
-
-//----------------------------------------------------------------------------//
-
-bool writeFieldMapping(hid_t mappingGroup, FieldMapping::Ptr mapping)
-{
-  ClassFactory &factory = ClassFactory::singleton();
-
-  std::string className = mapping->className();
-
-  if (!writeAttribute(mappingGroup, k_mappingTypeAttrName, className)) {
-    Msg::print(Msg::SevWarning, "Couldn't add " + className + " attribute");
-    return false;
-  }
-
-  FieldMappingIO::Ptr io = factory.createFieldMappingIO(className);
-  assert(io != 0);
-  if (!io) {
-    Msg::print(Msg::SevWarning, "Unable to find class type: " + 
-               className);
-    return false;
-  }
-
-  return io->write(mappingGroup, mapping);
 }
 
 //----------------------------------------------------------------------------//
