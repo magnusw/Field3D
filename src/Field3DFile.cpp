@@ -54,6 +54,7 @@
 #include <boost/utility.hpp>
 
 #include "Field.h"
+#include "Field3DFileHDF5.h"
 #include "ClassFactory.h"
 #include "OArchive.h"
 #include "OgIAttribute.h"
@@ -294,8 +295,7 @@ namespace {
 
   //--------------------------------------------------------------------------//
 
-  template <typename T>
-  bool readMeta(const OgIGroup &group, FieldMetadata<T> &metadata)
+  bool readMeta(const OgIGroup &group, FieldMetadata &metadata)
   {
     // Grab all the attribute names
     std::vector<std::string> attrs = group.attributeNames();
@@ -506,6 +506,11 @@ Field3DFileBase::removeUniqueId(const std::string &partitionName) const
 void 
 Field3DFileBase::getPartitionNames(vector<string> &names) const
 {
+  if (m_hdf5Base) {
+    m_hdf5Base->getPartitionNames(names);
+    return;
+  }
+
   names.clear();
 
   vector<string> tempNames;
@@ -524,6 +529,11 @@ void
 Field3DFileBase::getScalarLayerNames(vector<string> &names, 
                                      const string &partitionName) const
 {
+  if (m_hdf5Base) {
+    m_hdf5Base->getScalarLayerNames(names, partitionName);
+    return;
+  }
+
   //! \todo Make this really only return scalar layers
 
   names.clear();
@@ -544,6 +554,11 @@ void
 Field3DFileBase::getVectorLayerNames(vector<string> &names, 
                                      const string &partitionName) const
 {
+  if (m_hdf5Base) {
+    m_hdf5Base->getVectorLayerNames(names, partitionName);
+    return;
+  }
+
   //! \todo Make this really only return vector layers
 
   names.clear();
@@ -615,6 +630,11 @@ Field3DFileBase::getIntVectorLayerNames(vector<string> &names,
 
 void Field3DFileBase::clear()
 {
+  if (m_hdf5Base) {
+    m_hdf5Base->clear();
+    return;
+  }
+
   closeInternal();
   m_partitions.clear();
   m_groupMembership.clear();
@@ -624,6 +644,10 @@ void Field3DFileBase::clear()
 
 bool Field3DFileBase::close()
 {
+  if (m_hdf5Base) {
+    return m_hdf5Base->close();
+  }
+
   closeInternal();
 
   return true;
@@ -664,8 +688,13 @@ Field3DFileBase::makeIntPartitionName(const std::string &partitionName,
 void 
 Field3DFileBase::addGroupMembership(const GroupMembershipMap& groupMembers)
 {
-  GroupMembershipMap::const_iterator i= groupMembers.begin();
-  GroupMembershipMap::const_iterator end= groupMembers.end();
+  if (m_hdf5Base) {
+    m_hdf5Base->addGroupMembership(groupMembers);
+    return;
+  }
+
+  GroupMembershipMap::const_iterator i = groupMembers.begin();
+  GroupMembershipMap::const_iterator end = groupMembers.end();
 
   for (; i != end; ++i) {
     GroupMembershipMap::iterator foundGroupIter = 
@@ -713,6 +742,18 @@ bool Field3DInputFile::open(const string &filename)
     
     // Open the Ogawa archive
     m_archive.reset(new Alembic::Ogawa::IArchive(filename));
+
+    // Error check and HDF5 fallback
+    if (!m_archive->isValid()) {
+      m_hdf5.reset(new Field3DInputFileHDF5);
+      m_hdf5Base = m_hdf5;
+      if (m_hdf5->open(filename)) {
+        // Handled. Just return.
+        return true;
+      } else {
+        throw NoSuchFileException(filename);
+      }
+    }
 
     // Grab the root group
     m_root.reset(new OgIGroup(*m_archive));
@@ -917,6 +958,10 @@ bool Field3DInputFile::readMetadata(OgIGroup &metadataGroup)
 // Field3DOutputFile implementations
 //----------------------------------------------------------------------------//
 
+bool Field3DOutputFile::ms_doOgawa = true;
+
+//----------------------------------------------------------------------------//
+
 Field3DOutputFile::Field3DOutputFile() 
 { 
   // Empty
@@ -933,6 +978,13 @@ Field3DOutputFile::~Field3DOutputFile()
 
 bool Field3DOutputFile::create(const string &filename, CreateMode cm)
 {
+  if (!ms_doOgawa) {
+    m_hdf5.reset(new Field3DOutputFileHDF5);
+    m_hdf5Base = m_hdf5;
+    int ccm = cm;
+    return m_hdf5->create(filename, Field3DOutputFileHDF5::CreateMode(ccm));
+  }
+
   closeInternal();
 
   if (cm == FailOnExisting && fileExists(filename)) {
@@ -994,12 +1046,10 @@ bool Field3DOutputFile::writeMapping(OgOGroup &partitionGroup,
 bool Field3DOutputFile::writeMetadata(OgOGroup &metadataGroup, 
                                       FieldBase::Ptr field)
 {
-  typedef FieldMetadata<FieldBase> Metadata;
-
   {
-    Metadata::StrMetadata::const_iterator i = 
+    FieldMetadata::StrMetadata::const_iterator i = 
       field->metadata().strMetadata().begin();
-    Metadata::StrMetadata::const_iterator end = 
+    FieldMetadata::StrMetadata::const_iterator end = 
       field->metadata().strMetadata().end();
     for (; i != end; ++i) {
       try {
@@ -1014,9 +1064,9 @@ bool Field3DOutputFile::writeMetadata(OgOGroup &metadataGroup,
   }
 
   {
-    Metadata::IntMetadata::const_iterator i = 
+    FieldMetadata::IntMetadata::const_iterator i = 
       field->metadata().intMetadata().begin();
-    Metadata::IntMetadata::const_iterator end = 
+    FieldMetadata::IntMetadata::const_iterator end = 
       field->metadata().intMetadata().end();
     for (; i != end; ++i) {
       try {
@@ -1031,9 +1081,9 @@ bool Field3DOutputFile::writeMetadata(OgOGroup &metadataGroup,
   }
 
   {
-    Metadata::FloatMetadata::const_iterator i = 
+    FieldMetadata::FloatMetadata::const_iterator i = 
       field->metadata().floatMetadata().begin();
-    Metadata::FloatMetadata::const_iterator end = 
+    FieldMetadata::FloatMetadata::const_iterator end = 
       field->metadata().floatMetadata().end();
     for (; i != end; ++i) {
       try {
@@ -1048,9 +1098,9 @@ bool Field3DOutputFile::writeMetadata(OgOGroup &metadataGroup,
   }
 
   {
-    Metadata::VecIntMetadata::const_iterator i = 
+    FieldMetadata::VecIntMetadata::const_iterator i = 
       field->metadata().vecIntMetadata().begin();
-    Metadata::VecIntMetadata::const_iterator end = 
+    FieldMetadata::VecIntMetadata::const_iterator end = 
       field->metadata().vecIntMetadata().end();
     for (; i != end; ++i) {
       try {
@@ -1065,9 +1115,9 @@ bool Field3DOutputFile::writeMetadata(OgOGroup &metadataGroup,
   }
 
   {
-    Metadata::VecFloatMetadata::const_iterator i = 
+    FieldMetadata::VecFloatMetadata::const_iterator i = 
       field->metadata().vecFloatMetadata().begin();
-    Metadata::VecFloatMetadata::const_iterator end = 
+    FieldMetadata::VecFloatMetadata::const_iterator end = 
       field->metadata().vecFloatMetadata().end();
     for (; i != end; ++i) {
       try {
@@ -1090,12 +1140,10 @@ bool Field3DOutputFile::writeMetadata(OgOGroup &metadataGroup,
 
 bool Field3DOutputFile::writeMetadata(OgOGroup &metadataGroup)
 {
-  typedef FieldMetadata<Field3DFileBase> Metadata;
-
   {
-    Metadata::StrMetadata::const_iterator i = 
+    FieldMetadata::StrMetadata::const_iterator i = 
       metadata().strMetadata().begin();
-    Metadata::StrMetadata::const_iterator end = 
+    FieldMetadata::StrMetadata::const_iterator end = 
       metadata().strMetadata().end();
     for (; i != end; ++i) {
       try {
@@ -1110,9 +1158,9 @@ bool Field3DOutputFile::writeMetadata(OgOGroup &metadataGroup)
   }
 
   {
-    Metadata::IntMetadata::const_iterator i = 
+    FieldMetadata::IntMetadata::const_iterator i = 
       metadata().intMetadata().begin();
-    Metadata::IntMetadata::const_iterator end = 
+    FieldMetadata::IntMetadata::const_iterator end = 
       metadata().intMetadata().end();
     for (; i != end; ++i) {
       try {
@@ -1127,9 +1175,9 @@ bool Field3DOutputFile::writeMetadata(OgOGroup &metadataGroup)
   }
 
   {
-    Metadata::FloatMetadata::const_iterator i = 
+    FieldMetadata::FloatMetadata::const_iterator i = 
       metadata().floatMetadata().begin();
-    Metadata::FloatMetadata::const_iterator end = 
+    FieldMetadata::FloatMetadata::const_iterator end = 
       metadata().floatMetadata().end();
     for (; i != end; ++i) {
       try {
@@ -1144,9 +1192,9 @@ bool Field3DOutputFile::writeMetadata(OgOGroup &metadataGroup)
   }
 
   {
-    Metadata::VecIntMetadata::const_iterator i = 
+    FieldMetadata::VecIntMetadata::const_iterator i = 
       metadata().vecIntMetadata().begin();
-    Metadata::VecIntMetadata::const_iterator end = 
+    FieldMetadata::VecIntMetadata::const_iterator end = 
       metadata().vecIntMetadata().end();
     for (; i != end; ++i) {
       try {
@@ -1161,9 +1209,9 @@ bool Field3DOutputFile::writeMetadata(OgOGroup &metadataGroup)
   }
 
   {
-    Metadata::VecFloatMetadata::const_iterator i = 
+    FieldMetadata::VecFloatMetadata::const_iterator i = 
       metadata().vecFloatMetadata().begin();
-    Metadata::VecFloatMetadata::const_iterator end = 
+    FieldMetadata::VecFloatMetadata::const_iterator end = 
       metadata().vecFloatMetadata().end();
     for (; i != end; ++i) {
       try {
@@ -1186,6 +1234,10 @@ bool Field3DOutputFile::writeMetadata(OgOGroup &metadataGroup)
 bool 
 Field3DOutputFile::writeGlobalMetadata()
 {
+  if (m_hdf5) {
+    return m_hdf5->writeGlobalMetadata();
+  }
+
   OgOGroup ogMetadata(*m_root, "field3d_global_metadata");
   if (!writeMetadata(ogMetadata)) {
     Msg::print(Msg::SevWarning, "Error writing file metadata.");
@@ -1200,6 +1252,9 @@ Field3DOutputFile::writeGlobalMetadata()
 bool 
 Field3DOutputFile::writeGroupMembership()
 {
+  if (m_hdf5) {
+    return m_hdf5->writeGroupMembership();
+  }
 
 #if 0
 

@@ -1301,9 +1301,9 @@ bool Field3DOutputFileHDF5::writeMetadata(hid_t metadataGroup, FieldBase::Ptr fi
   using namespace Hdf5Util;
 
   {
-    FieldMetadata<FieldBase>::StrMetadata::const_iterator i = 
+    FieldMetadata::StrMetadata::const_iterator i = 
       field->metadata().strMetadata().begin();
-    FieldMetadata<FieldBase>::StrMetadata::const_iterator end = 
+    FieldMetadata::StrMetadata::const_iterator end = 
       field->metadata().strMetadata().end();
     for (; i != end; ++i) {
       if (!writeAttribute(metadataGroup, i->first, i->second))
@@ -1315,9 +1315,9 @@ bool Field3DOutputFileHDF5::writeMetadata(hid_t metadataGroup, FieldBase::Ptr fi
   }
 
   {
-    FieldMetadata<FieldBase>::IntMetadata::const_iterator i = 
+    FieldMetadata::IntMetadata::const_iterator i = 
       field->metadata().intMetadata().begin();
-    FieldMetadata<FieldBase>::IntMetadata::const_iterator end = 
+    FieldMetadata::IntMetadata::const_iterator end = 
       field->metadata().intMetadata().end();
     for (; i != end; ++i) {
       if (!writeAttribute(metadataGroup, i->first, 1, i->second))
@@ -1329,9 +1329,9 @@ bool Field3DOutputFileHDF5::writeMetadata(hid_t metadataGroup, FieldBase::Ptr fi
   }
 
   {
-    FieldMetadata<FieldBase>::FloatMetadata::const_iterator i = 
+    FieldMetadata::FloatMetadata::const_iterator i = 
       field->metadata().floatMetadata().begin();
-    FieldMetadata<FieldBase>::FloatMetadata::const_iterator end = 
+    FieldMetadata::FloatMetadata::const_iterator end = 
       field->metadata().floatMetadata().end();
     for (; i != end; ++i) {
       if (!writeAttribute(metadataGroup, i->first, 1, i->second))
@@ -1343,9 +1343,9 @@ bool Field3DOutputFileHDF5::writeMetadata(hid_t metadataGroup, FieldBase::Ptr fi
   }
 
   {
-    FieldMetadata<FieldBase>::VecIntMetadata::const_iterator i = 
+    FieldMetadata::VecIntMetadata::const_iterator i = 
       field->metadata().vecIntMetadata().begin();
-    FieldMetadata<FieldBase>::VecIntMetadata::const_iterator end = 
+    FieldMetadata::VecIntMetadata::const_iterator end = 
       field->metadata().vecIntMetadata().end();
     for (; i != end; ++i) {
       if (!writeAttribute(metadataGroup, i->first, 3, i->second.x))
@@ -1357,9 +1357,9 @@ bool Field3DOutputFileHDF5::writeMetadata(hid_t metadataGroup, FieldBase::Ptr fi
   }
 
   {
-    FieldMetadata<FieldBase>::VecFloatMetadata::const_iterator i = 
+    FieldMetadata::VecFloatMetadata::const_iterator i = 
       field->metadata().vecFloatMetadata().begin();
-    FieldMetadata<FieldBase>::VecFloatMetadata::const_iterator end = 
+    FieldMetadata::VecFloatMetadata::const_iterator end = 
       field->metadata().vecFloatMetadata().end();
     for (; i != end; ++i) {
       if (!writeAttribute(metadataGroup, i->first, 3, i->second.x))
@@ -1382,9 +1382,9 @@ bool Field3DOutputFileHDF5::writeMetadata(hid_t metadataGroup)
   using namespace Hdf5Util;
 
   {
-    FieldMetadata<Field3DFileHDF5Base>::StrMetadata::const_iterator i = 
+    FieldMetadata::StrMetadata::const_iterator i = 
       metadata().strMetadata().begin();
-    FieldMetadata<Field3DFileHDF5Base>::StrMetadata::const_iterator end = 
+    FieldMetadata::StrMetadata::const_iterator end = 
       metadata().strMetadata().end();
     for (; i != end; ++i) {
       if (!writeAttribute(metadataGroup, i->first, i->second))
@@ -1396,9 +1396,9 @@ bool Field3DOutputFileHDF5::writeMetadata(hid_t metadataGroup)
   }
 
   {
-    FieldMetadata<Field3DFileHDF5Base>::IntMetadata::const_iterator i = 
+    FieldMetadata::IntMetadata::const_iterator i = 
       metadata().intMetadata().begin();
-    FieldMetadata<Field3DFileHDF5Base>::IntMetadata::const_iterator end = 
+    FieldMetadata::IntMetadata::const_iterator end = 
       metadata().intMetadata().end();
     for (; i != end; ++i) {
       if (!writeAttribute(metadataGroup, i->first, 1, i->second))
@@ -1410,9 +1410,9 @@ bool Field3DOutputFileHDF5::writeMetadata(hid_t metadataGroup)
   }
 
   {
-    FieldMetadata<Field3DFileHDF5Base>::FloatMetadata::const_iterator i = 
+    FieldMetadata::FloatMetadata::const_iterator i = 
       metadata().floatMetadata().begin();
-    FieldMetadata<Field3DFileHDF5Base>::FloatMetadata::const_iterator end = 
+    FieldMetadata::FloatMetadata::const_iterator end = 
       metadata().floatMetadata().end();
     for (; i != end; ++i) {
       if (!writeAttribute(metadataGroup, i->first, 1, i->second))
@@ -1424,9 +1424,9 @@ bool Field3DOutputFileHDF5::writeMetadata(hid_t metadataGroup)
   }
 
   {
-    FieldMetadata<Field3DFileHDF5Base>::VecIntMetadata::const_iterator i = 
+    FieldMetadata::VecIntMetadata::const_iterator i = 
       metadata().vecIntMetadata().begin();
-    FieldMetadata<Field3DFileHDF5Base>::VecIntMetadata::const_iterator end = 
+    FieldMetadata::VecIntMetadata::const_iterator end = 
       metadata().vecIntMetadata().end();
     for (; i != end; ++i) {
       if (!writeAttribute(metadataGroup, i->first, 3, i->second.x))
@@ -1438,9 +1438,9 @@ bool Field3DOutputFileHDF5::writeMetadata(hid_t metadataGroup)
   }
 
   {
-    FieldMetadata<Field3DFileHDF5Base>::VecFloatMetadata::const_iterator i = 
+    FieldMetadata::VecFloatMetadata::const_iterator i = 
       metadata().vecFloatMetadata().begin();
-    FieldMetadata<Field3DFileHDF5Base>::VecFloatMetadata::const_iterator end = 
+    FieldMetadata::VecFloatMetadata::const_iterator end = 
       metadata().vecFloatMetadata().end();
     for (; i != end; ++i) {
       if (!writeAttribute(metadataGroup, i->first, 3, i->second.x))
