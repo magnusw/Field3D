@@ -199,6 +199,37 @@ namespace {
     return true;
   }
 
+  //! This function creates a FieldMappingIO instance based on className 
+  //! read from mappingGroup location which then reads FieldMapping data
+  FIELD3D_API FieldMapping::Ptr readFieldMapping(OgIGroup &mappingGroup)
+  {
+    ClassFactory &factory = ClassFactory::singleton();
+    
+    OgIAttribute<string> mappingAttr = 
+      mappingGroup.findAttribute<string>(k_mappingTypeAttrName);
+    if (!mappingAttr.isValid()) {
+      Msg::print(Msg::SevWarning, "Couldn't find " + k_mappingTypeAttrName + 
+                 " attribute");
+      return FieldMapping::Ptr();    
+    }
+    const std::string className = mappingAttr.value();
+
+    FieldMappingIO::Ptr io = factory.createFieldMappingIO(className);
+    assert(io != 0);
+    if (!io) {
+      Msg::print(Msg::SevWarning, "Unable to find class type: " + className);
+      return FieldMapping::Ptr();
+    }
+
+    FieldMapping::Ptr mapping = io->read(mappingGroup);
+    if (!mapping) {
+      Msg::print(Msg::SevWarning, "Couldn't read mapping");
+      return FieldMapping::Ptr();
+    }
+  
+    return mapping;
+  }
+
   //--------------------------------------------------------------------------//
 
   //! This function creates a FieldIO instance based on field->className()
@@ -218,9 +249,96 @@ namespace {
     // Add class name attribute
     OgOAttribute<string>(layerGroup, k_classNameAttrName, field->className());
 
-    // return io->write(layerGroup, field);
+    return io->write(layerGroup, field);
     //! \todo FIXME!
     return false;
+  }
+
+  //--------------------------------------------------------------------------//
+
+  //! This function creates a FieldIO instance based on className
+  //! which then reads the field data from layerGroup location
+  template <class Data_T>
+  typename Field<Data_T>::Ptr 
+  readField(const std::string &className, OgIGroup &layerGroup,
+            const std::string &filename, const std::string &layerPath)
+  {
+    ClassFactory &factory = ClassFactory::singleton();
+  
+    typedef typename Field<Data_T>::Ptr FieldPtr;
+
+    FieldIO::Ptr io = factory.createFieldIO(className);
+    if (!io) {
+      Msg::print(Msg::SevWarning, "Unable to find class type: " + 
+                 className);
+      return FieldPtr();
+    }
+
+    OgDataType typeEnum = OgawaTypeTraits<Data_T>::typeEnum();
+    FieldBase::Ptr field = io->read(layerGroup, filename, layerPath, typeEnum);
+
+    if (!field) {
+      // We don't need to print a message, because it could just be that
+      // a layer of the specified data type and name couldn't be found
+      return FieldPtr();
+    }
+  
+    FieldPtr result = field_dynamic_cast<Field<Data_T> >(field);
+
+    if (result) {
+      return result;
+    }
+
+    return FieldPtr();
+  }
+
+  //--------------------------------------------------------------------------//
+
+  template <typename T>
+  bool readMeta(const OgIGroup &group, FieldMetadata<T> &metadata)
+  {
+    // Grab all the attribute names
+    std::vector<std::string> attrs = group.attributeNames();
+    // Loop over attribute names and test types
+    for (size_t i = 0, end = attrs.size(); i < end; ++i) {
+      // String metadata
+      {
+        OgIAttribute<string> attr = group.findAttribute<string>(attrs[i]);
+        if (attr.isValid()) {
+          metadata.setStrMetadata(attrs[i], attr.value());
+        }
+      }
+      // Int metadata
+      {
+        OgIAttribute<int> attr = group.findAttribute<int>(attrs[i]);
+        if (attr.isValid()) {
+          metadata.setIntMetadata(attrs[i], attr.value());
+        }
+      }
+      // Float metadata
+      {
+        OgIAttribute<float> attr = group.findAttribute<float>(attrs[i]);
+        if (attr.isValid()) {
+          metadata.setFloatMetadata(attrs[i], attr.value());
+        }
+      }
+      // VecInt metadata
+      {
+        OgIAttribute<veci32_t> attr = group.findAttribute<veci32_t>(attrs[i]);
+        if (attr.isValid()) {
+          metadata.setVecIntMetadata(attrs[i], attr.value());
+        }
+      }
+      // VecFloat metadata
+      {
+        OgIAttribute<vec32_t> attr = group.findAttribute<vec32_t>(attrs[i]);
+        if (attr.isValid()) {
+          metadata.setVecFloatMetadata(attrs[i], attr.value());
+        }
+      }
+    }
+
+    return true;
   }
 
   //--------------------------------------------------------------------------//
@@ -309,7 +427,8 @@ Field3DFileBase::Field3DFileBase()
 
 Field3DFileBase::~Field3DFileBase()
 {
-  close();
+  m_partitions.clear();
+  m_groupMembership.clear();
 }
 
 //----------------------------------------------------------------------------//
@@ -573,7 +692,7 @@ Field3DInputFile::Field3DInputFile()
 
 Field3DInputFile::~Field3DInputFile() 
 { 
-  clear(); 
+  cleanup();
 }
 
 //----------------------------------------------------------------------------//
@@ -587,10 +706,211 @@ bool Field3DInputFile::open(const string &filename)
   // Record filename
   m_filename = filename;
 
-  // Open the Ogawa archive
-  m_archive.reset(new Alembic::Ogawa::IArchive(filename));
+  try {
+
+    // Throws exceptions if the file doesn't exist.
+    checkFile(filename);
+    
+    // Open the Ogawa archive
+    m_archive.reset(new Alembic::Ogawa::IArchive(filename));
+
+    // Grab the root group
+    m_root.reset(new OgIGroup(*m_archive));
+    
+    // Check version number
+    try {
+      OgIAttribute<veci32_t> version = 
+        m_root->findAttribute<veci32_t>(k_versionAttrName);
+      if (!version.isValid()) {
+        throw OgIAttributeException("Missing version attribute.");
+      }
+      int fileVersion[3] = { version.value()[0],
+                             version.value()[1],
+                             version.value()[2] };
+      if (!isSupportedFileVersion(fileVersion, k_minFileVersion)) {
+        stringstream versionStr;
+        versionStr << fileVersion[0] << "."
+                   << fileVersion[1] << "."
+                   << fileVersion[2];
+        throw UnsupportedVersionException(versionStr.str());
+      }
+    }
+    catch (OgIAttributeException &e) {
+      
+    }
+
+    // Read the global metadata
+    try { 
+      OgIGroup metadataGroup = m_root->findGroup("field3d_global_metadata");
+      if (metadataGroup.isValid()) {
+        readMetadata(metadataGroup);
+      }
+    }
+    catch (...) {
+      Msg::print(Msg::SevWarning, 
+                 "Unknown error when reading file metadata ");
+    }
+
+    // Read the partition and layer info
+    try {
+      if (!readPartitionAndLayerInfo()) {
+        success = false;
+      }
+    }
+    catch (MissingGroupException &e) {
+      Msg::print(Msg::SevWarning, "Missing group: " + string(e.what()));
+      throw BadFileHierarchyException(filename);
+    }
+    catch (ReadMappingException &e) {
+      Msg::print(Msg::SevWarning, "Couldn't read mapping for partition: " 
+                + string(e.what()));
+      throw BadFileHierarchyException(filename);
+    }
+    catch (Exception &e) {
+      Msg::print(Msg::SevWarning, "Unknown error when reading file hierarchy: "
+                + string(e.what()));
+      throw BadFileHierarchyException(filename);
+    }
+    catch (...) {
+      Msg::print(Msg::SevWarning, 
+                 "Unknown error when reading file hierarchy. ");
+      throw BadFileHierarchyException(filename);
+    }
+  }
+  catch (NoSuchFileException &e) {
+    Msg::print(Msg::SevWarning, "Couldn't open file: " 
+              + string(e.what()) );
+    success = false;    
+  }
+  catch (MissingAttributeException &e) {
+    Msg::print(Msg::SevWarning, 
+               "In file: " + filename + " - "
+              + string(e.what()) );
+    success = false;
+  }
+  catch (UnsupportedVersionException &e) {    
+    Msg::print(Msg::SevWarning, 
+               "In file: " + filename + " - File version can not be read: " 
+              + string(e.what()));
+    success = false;    
+  }
+  catch (BadFileHierarchyException &) {
+    Msg::print(Msg::SevWarning, 
+               "In file: " + filename + " - Bad file hierarchy. ");
+    success = false;    
+  }
+  catch (...) {
+    Msg::print(Msg::SevWarning, 
+               "In file: " + filename + " Unknown exception ");
+    success = false;
+  }
+
+  if (!success) {
+    close();
+  }
 
   return success;
+}
+
+//----------------------------------------------------------------------------//
+
+bool Field3DInputFile::readPartitionAndLayerInfo()
+{
+  // Find all the partition names
+  std::vector<std::string> groups = m_root->groupNames();
+  
+  // Store the partition names
+  m_partitions.clear();
+  for (std::vector<std::string>::const_iterator i = groups.begin(), 
+         end = groups.end(); i != end; ++i) {
+    // Grab the name
+    const std::string &name = *i;
+    // Skip metadata
+    if (name == "field3d_global_metadata") {
+      continue;
+    }
+    // Build partition
+    File::Partition::Ptr part(new File::Partition);
+    part->name = name;
+    m_partitions.push_back(part);
+  }
+
+  // For each partition, find its mapping ---
+
+  for (PartitionList::iterator i = m_partitions.begin();
+       i != m_partitions.end(); ++i) {
+    // Grab the name
+    const std::string &name = (**i).name;
+    // Open the partition group
+    OgIGroup partitionGroup = m_root->findGroup(name);
+    if (!partitionGroup.isValid()) {
+      Msg::print(Msg::SevWarning, "Couldn't open partition group " + name);
+    }
+    // Open the mapping group
+    OgIGroup mappingGroup = partitionGroup.findGroup(k_mappingStr);
+    if (!mappingGroup.isValid()) {
+      Msg::print(Msg::SevWarning, "Couldn't open mapping group " + name);
+    }
+    // Build the mapping
+    FieldMapping::Ptr mapping = readFieldMapping(mappingGroup);
+#if 0
+    if (!mapping) {
+      Msg::print(Msg::SevWarning, "Got a null pointer when reading mapping");
+      throw ReadMappingException((**i).name);
+    }
+#endif
+    // Attach the mapping to the partition
+    (**i).mapping = mapping;
+  }
+
+  // ... And then find its layers ---
+
+  for (PartitionList::const_iterator i = m_partitions.begin();
+       i != m_partitions.end(); ++i) {
+    // Grab the name
+    const std::string &partitionName = (**i).name;
+    // Open the partition group
+    OgIGroup partitionGroup = m_root->findGroup(partitionName);
+    if (!partitionGroup.isValid()) {
+      Msg::print(Msg::SevWarning, "Couldn't open partition group " + 
+                 partitionName);
+    }
+    // Get all the layer names
+    groups = partitionGroup.groupNames();
+    for (std::vector<std::string>::const_iterator l = groups.begin(), 
+           lEnd = groups.end(); l != lEnd; ++l) {
+      // Grab layer name
+      const std::string layerName = *l;
+      // Skip the mapping group
+      if (layerName == k_mappingStr) {
+        continue;
+      }
+      // Construct the layer
+      File::Layer layer;
+      layer.name = *l;
+      layer.parent = partitionName;
+      // Add to partition
+      partition(partitionName)->addLayer(layer);
+    }
+  }
+
+  return true;
+
+}
+
+//----------------------------------------------------------------------------//
+
+bool Field3DInputFile::readMetadata(OgIGroup &metadataGroup, 
+                                    FieldBase::Ptr field) const
+{
+  return readMeta(metadataGroup, field->metadata());
+}
+
+//----------------------------------------------------------------------------//
+
+bool Field3DInputFile::readMetadata(OgIGroup &metadataGroup)
+{
+  return readMeta(metadataGroup, metadata());
 }
 
 //----------------------------------------------------------------------------//
@@ -606,7 +926,7 @@ Field3DOutputFile::Field3DOutputFile()
 
 Field3DOutputFile::~Field3DOutputFile() 
 { 
-
+  cleanup();
 }
 
 //----------------------------------------------------------------------------//
@@ -635,6 +955,38 @@ bool Field3DOutputFile::create(const string &filename, CreateMode cm)
                                     k_currentFileVersion);
 
   return true;
+}
+
+//----------------------------------------------------------------------------//
+
+bool Field3DOutputFile::writeMapping(OgOGroup &partitionGroup, 
+                                     FieldMapping::Ptr mapping)
+{
+  ClassFactory      &factory   = ClassFactory::singleton();
+  const std::string  className = mapping->className();
+
+  try {
+
+    OgOGroup mappingGroup(partitionGroup, k_mappingStr);
+
+    OgOAttribute<string> classNameAttr(mappingGroup, k_mappingTypeAttrName,
+                                       className);
+
+    FieldMappingIO::Ptr io = factory.createFieldMappingIO(className);
+    if (!io) {
+      Msg::print(Msg::SevWarning, "Unable to find class type: " + 
+                 className);
+      return false;
+    }
+
+    return io->write(mappingGroup, mapping);
+
+  }
+  catch (OgOGroupException &e) {
+    Msg::print(Msg::SevWarning, "Couldn't create group: " + string(e.what()) );
+    throw WriteMappingException(k_mappingStr);
+  }
+
 }
 
 //----------------------------------------------------------------------------//
@@ -927,13 +1279,11 @@ Field3DOutputFile::createNewPartition(const std::string &partitionName,
   
   // Add mapping group to the partition
   try {
-#if 0
     if (!writeMapping(*ogPartition, field->mapping())) {
       Msg::print(Msg::SevWarning, 
                  "writeMapping returned false for an unknown reason ");
       return File::Partition::Ptr();
     }
-#endif
   }
   catch (WriteMappingException &e) {
     Msg::print(Msg::SevWarning, "Couldn't write mapping for partition: " 
@@ -1068,6 +1418,82 @@ bool Field3DOutputFile::writeLayer(const std::string &userPartitionName,
 }
 
 //----------------------------------------------------------------------------//
+
+template <class Data_T>
+typename Field<Data_T>::Ptr
+Field3DInputFile::readLayer(const std::string &intPartitionName,
+                            const std::string &layerName) const
+{
+  // Instantiate a null pointer for easier code reading
+  typename Field<Data_T>::Ptr nullPtr;
+
+  // Find the partition
+  File::Partition::Ptr part = partition(intPartitionName);
+  if (!part) {
+    Msg::print(Msg::SevWarning, "Couldn't find partition: " + intPartitionName);
+    return nullPtr;
+  }
+
+  // Find the layer
+  const File::Layer *layer = part->layer(layerName);
+  if (!layer) {
+    Msg::print(Msg::SevWarning, "Couldn't find layer: " + layerName);
+    return nullPtr;
+  }
+
+  // Open the partition group
+  OgIGroup partitionGroup = m_root->findGroup(intPartitionName);
+  if (!partitionGroup.isValid()) {
+    Msg::print(Msg::SevWarning, "Couldn't open partition group " + 
+               intPartitionName);
+    return nullPtr;
+  }
+
+  // Open the layer group
+  OgIGroup layerGroup = partitionGroup.findGroup(layerName);
+  if (!layerGroup.isValid()) {
+    Msg::print(Msg::SevWarning, "Couldn't open layer group " + 
+               layerName);
+    return nullPtr;
+  }
+
+  // Get the class name
+  string layerPath = layer->parent + "/" + layer->name;
+  string className;
+  try {
+    className = layerGroup.findAttribute<string>("class_name").value();
+  }
+  catch (OgIAttributeException &e) {
+    Msg::print(Msg::SevWarning, "Couldn't find class_name attrib in layer " + 
+               layerName);
+    return nullPtr;
+  }
+  
+  // Construct the field and load the data
+
+  typename Field<Data_T>::Ptr field;
+  field = readField<Data_T>(className, layerGroup, m_filename, layerPath);
+
+  if (!field) {
+    // This isn't really an error
+    return nullPtr;
+  }
+  
+  // Read the metadata
+  OgIGroup metadataGroup = layerGroup.findGroup("metadata");
+  if (metadataGroup.isValid()) {
+    readMetadata(metadataGroup, field);
+  }
+  
+  // Set the name of the field appropriately
+  field->name = removeUniqueId(intPartitionName);
+  field->attribute = layerName;
+  field->setMapping(part->mapping);
+
+  return field;
+}
+
+//----------------------------------------------------------------------------//
 // Template instantiations
 //----------------------------------------------------------------------------//
 
@@ -1082,6 +1508,21 @@ FIELD3D_INSTANTIATION_WRITELAYER(float64_t);
 FIELD3D_INSTANTIATION_WRITELAYER(vec16_t);
 FIELD3D_INSTANTIATION_WRITELAYER(vec32_t);
 FIELD3D_INSTANTIATION_WRITELAYER(vec64_t);
+
+//----------------------------------------------------------------------------//
+
+#define FIELD3D_INSTANTIATION_READLAYER(type)                           \
+  template                                                              \
+  Field<type>::Ptr                                                      \
+  Field3DInputFile::readLayer<type>                                     \
+  (const std::string &, const std::string &) const;                     \
+  
+FIELD3D_INSTANTIATION_READLAYER(float16_t);
+FIELD3D_INSTANTIATION_READLAYER(float32_t);
+FIELD3D_INSTANTIATION_READLAYER(float64_t);
+FIELD3D_INSTANTIATION_READLAYER(vec16_t);
+FIELD3D_INSTANTIATION_READLAYER(vec32_t);
+FIELD3D_INSTANTIATION_READLAYER(vec64_t);
 
 //----------------------------------------------------------------------------//
 
