@@ -997,6 +997,7 @@ bool Field3DOutputFile::create(const string &filename, CreateMode cm)
 
   // Check that it's valid
   if (!m_archive->isValid()) {
+    m_archive.reset();
     return false;
   }
 
