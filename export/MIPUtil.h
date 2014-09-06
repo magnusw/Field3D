@@ -224,9 +224,6 @@ namespace detail {
 
     using namespace std;
 
-    // To ensure we don't sample outside source data
-    Box3i srcDw = src.dataWindow();
-
     // Compute new res
     V3i res;
     if (dim == 2) {
@@ -285,7 +282,7 @@ namespace detail {
   //! Single threaded implementation of separable MIP filtering
   template <typename Field_T, typename FilterOp_T>
   void mipSeparable(const Field_T &src, Field_T &tgt, 
-                    const V3i &oldRes, const V3i &newRes, const size_t level, 
+                    const V3i &oldRes, const V3i &newRes, 
                     const FilterOp_T &filterOp, const size_t dim)
   {
     typedef typename Field_T::value_type T;
@@ -315,9 +312,6 @@ namespace detail {
     // Resize new field
     tgt.setSize(res);
     
-    // Determine granularity
-    const size_t blockSize = threadingBlockSize(src);
-
     // For each output voxel
     for (int k = 0; k < res.z; ++k) {
       for (int j = 0; j < res.y; ++j) {

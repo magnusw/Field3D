@@ -903,7 +903,7 @@ inline size_t FileReferences::numRefs<V3d>() const
 //----------------------------------------------------------------------------//
 
 template <class Data_T>
-Reference<Data_T>& FileReferences::ref(size_t idx)
+Reference<Data_T>& FileReferences::ref(size_t)
 {
   assert(false && "Do not use memory limiting on sparse fields that aren't "
          "simple scalars or vectors!");
@@ -917,7 +917,7 @@ Reference<Data_T>& FileReferences::ref(size_t idx)
 //----------------------------------------------------------------------------//
 
 template <class Data_T>
-size_t FileReferences::append(const Reference<Data_T>& ref)
+size_t FileReferences::append(const Reference<Data_T>&)
 {
   assert(false && "Do not use memory limiting on sparse fields that aren't "
          "simple scalars or vectors!");
